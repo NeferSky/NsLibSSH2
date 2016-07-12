@@ -4,6 +4,7 @@ package NsLibSSH2Pkg;
 {$R 'NsLibSSH2Channel.dcr'}
 {$R 'NsLibSSH2Session.dcr'}
 {$R 'NsLibSSH2SFTP.dcr'}
+{$R 'NsLibSSH2Terminal.dcr'}
 {$ALIGN 8}
 {$ASSERTIONS ON}
 {$BOOLEVAL OFF}
@@ -28,7 +29,8 @@ package NsLibSSH2Pkg;
 {$IMPLICITBUILD OFF}
 
 requires
-  rtl;
+  rtl,
+  vcl;
 
 contains
   libssh2 in 'libssh2.pas',
@@ -36,6 +38,7 @@ contains
   NsLibSSH2Channel in 'NsLibSSH2Channel.pas',
   NsLibSSH2Const in 'NsLibSSH2Const.pas',
   NsLibSSH2Session in 'NsLibSSH2Session.pas',
-  NsLibSSH2SFTP in 'NsLibSSH2SFTP.pas';
+  NsLibSSH2SFTP in 'NsLibSSH2SFTP.pas',
+  NsLibSSH2Terminal in 'NsLibSSH2Terminal.pas';
 
 end.

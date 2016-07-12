@@ -1,9 +1,5 @@
 unit NsLibSSH2Session;
 
-{
-  version 1.1
-}
-
 interface
 
 uses
@@ -27,13 +23,19 @@ type
     FFingerprint: PAnsiChar;
     FUserAuth: PAnsiChar;
 
-    FSock: TSocket;
+    FSocket: TSocket;
     FSession: PLIBSSH2_SESSION;
-
-    rc: Integer;
     Auth: set of Byte;
     SockAddr: sockaddr_in;
     WSA_Data: WSAData;
+
+    //Events
+    FAfterCreate: TNotifyEvent;
+    FBeforeDestroy: TNotifyEvent;
+    FBeforeOpen: TNotifyEvent;
+    FAfterOpen: TNotifyEvent;
+    FBeforeClose: TNotifyEvent;
+    FAfterClose: TNotifyEvent;
   protected
     function ConnectToServer: Boolean;
     function StartSSHSession: Boolean;
@@ -42,11 +44,21 @@ type
     constructor Create(AOwner: TComponent); override;
     destructor Destroy; override;
     function Open: Boolean;
+    function OpenEx(AServerIP, AUserName, APassword,
+      APublicKeyFile, APrivateKeyFile: String; AAuthType: TAuthType;
+      AServerPort: Integer): Boolean;
     procedure Close;
+    procedure CloseEx;
     property Session: PLIBSSH2_SESSION read FSession;
     property Fingerprint: PAnsiChar read FFingerprint;
     property UserAuth: PAnsiChar read FUserAuth;
   published
+    property AfterCreate: TNotifyEvent read FAfterCreate write FAfterCreate;
+    property BeforeDestroy: TNotifyEvent read FBeforeDestroy write FBeforeDestroy;
+    property BeforeOpen: TNotifyEvent read FBeforeOpen write FBeforeOpen;
+    property AfterOpen: TNotifyEvent read FAfterOpen write FAfterOpen;
+    property BeforeClose: TNotifyEvent read FBeforeClose write FBeforeClose;
+    property AfterClose: TNotifyEvent read FAfterClose write FAfterClose;
     property ServerIP: String read FServerIP write FServerIP;
     property ServerPort: Integer read FServerPort write FServerPort;
     property Username: String read FUsername write FUsername;
@@ -58,39 +70,6 @@ type
     property Status: String read FStatus;
   end;
 
-{
-type
-  TTermExchangeThd = class(TThread)
-  private
-    FSock: TSocket;
-    FChannel: PLIBSSH2_CHANNEL;
-  public
-    property Sock: TSocket read FSock write FSock;
-    property Channel: PLIBSSH2_CHANNEL read FChannel write FChannel;
-    procedure Execute; override;
-    destructor Destroy; override;
-  end;
-
-type
-  TNsLibSSH2Terminal = class(TComponent)
-  private
-    FSession: TNsLibSSH2Session;
-    FChannel: PLIBSSH2_CHANNEL;
-    FExchangeThd: TTermExchangeThd;
-    FOpened: Boolean;
-    FStatus: String;
-    FWeRead, RWeSend: String;
-  protected
-    //
-  public
-    constructor Create(AOwner: TComponent); override;
-    destructor Destroy; override;
-    function Open: Boolean;
-    procedure Close;
-  published
-    property Session: TNsLibSSH2Session read FSession write FSession;
-  end;
- }
 procedure Register;
 
 implementation
@@ -105,42 +84,48 @@ end;
 { TNsLibSSH2Session }
 
 constructor TNsLibSSH2Session.Create(AOwner: TComponent);
+var
+  rc: Integer;
 begin
   inherited Create(AOwner);
 
-  FServerIP := '';
-  FServerPort := 22;
-  FUsername := '';
-  FPassword := '';
-  FPublicKeyFile := '';
-  FPrivateKeyFile := '';
+  FServerIP := VAL_EMPTY_STR;
+  FServerPort := DEFAULT_SSH_PORT;
+  FUsername := VAL_EMPTY_STR;
+  FPassword := VAL_EMPTY_STR;
+  FPublicKeyFile := VAL_EMPTY_STR;
+  FPrivateKeyFile := VAL_EMPTY_STR;
   FAuthType := atNone;
-  FOpened := False;
-  FFingerprint := '';
-  FUserAuth := '';
-  FStatus := 'Disconnected';
+  FOpened := VAL_FALSE;
+  FFingerprint := VAL_EMPTY_STR;
+  FUserAuth := VAL_EMPTY_STR;
+  FStatus := ST_DISCONNECTED;
   FSession := nil;
   Auth := [];
 
   rc := WSAStartup(MAKEWORD(2,0), WSA_Data);
   if (rc <> 0) then
     begin
-      raise Exception.CreateFmt('WSAStartup failed with error: %d', [rc]);
+      raise Exception.CreateFmt(ER_WSAERROR, [rc]);
       Exit;
     end;
 
   rc := libssh2_init(0);
   if (rc <> 0) then
     begin
-      raise Exception.CreateFmt('libssh2 initialization failed (%d)', [rc]);
+      raise Exception.CreateFmt(ER_LIBSSH2_INIT, [rc]);
       Exit;
     end;
+
+  if Assigned(AfterCreate) then AfterCreate(Self);
 end;
   
 //---------------------------------------------------------------------------
 
 destructor TNsLibSSH2Session.Destroy;
 begin
+  if Assigned(BeforeDestroy) then BeforeDestroy(Self);
+
   if Opened then Close;
 
   libssh2_exit;
@@ -148,11 +133,13 @@ begin
 
   inherited Destroy;
 end;
-   
+
 //---------------------------------------------------------------------------
 
 function TNsLibSSH2Session.Open: Boolean;
 begin
+  if Assigned(BeforeOpen) then BeforeOpen(Self);
+
   Result := False;
 
   if Opened then Close;
@@ -174,21 +161,48 @@ begin
       raise Exception.Create(FStatus);
     end;
 
-  FStatus := 'Connected';
+  FStatus := ST_CONNECTED;
   FOpened := True;
   Result := Opened;
+
+  if Assigned(AfterOpen) then AfterOpen(Self);
 end;
-   
+
+//---------------------------------------------------------------------------
+
+function TNsLibSSH2Session.OpenEx(AServerIP, AUserName, APassword,
+  APublicKeyFile, APrivateKeyFile: String; AAuthType: TAuthType;
+  AServerPort: Integer): Boolean;
+begin
+  Result := False;
+
+  ServerIP := AServerIP;
+  Username := AUserName;
+  Password := APassword;
+  ServerPort := AServerPort;
+  PublicKeyFile := APublicKeyFile;
+  PrivateKeyFile := APrivateKeyFile;
+  AuthType := AAuthType;
+
+  try
+    Open;
+  except
+    Exit;
+  end;
+
+  Result := True;
+end;
+
 //---------------------------------------------------------------------------
 
 function TNsLibSSH2Session.ConnectToServer: Boolean;
 begin
   Result := False;
 
-  FSock := Socket(PF_INET, SOCK_STREAM, IPPROTO_TCP);
-  if (FSock = INVALID_SOCKET) then
+  FSocket := Socket(PF_INET, SOCK_STREAM, IPPROTO_TCP);
+  if (FSocket = INVALID_SOCKET) then
     begin
-      FStatus := 'Failed to open socket';
+      FStatus := ER_OPEN_SOCKET;
       Exit;
     end;
 
@@ -196,14 +210,14 @@ begin
   SockAddr.sin_addr.s_addr := inet_addr(PAnsiChar(ServerIP));
   if ((INADDR_NONE = SockAddr.sin_addr.s_addr) and (INADDR_NONE = inet_addr(PAnsiChar(ServerIP)))) then
     begin
-      FStatus := 'IP address is wrong';
+      FStatus := ER_IP_INCORRECT;
       Exit;
     end;
 
   SockAddr.sin_port := htons(ServerPort);
-  if (Connect(FSock, SockAddr, SizeOf(sockaddr_in)) <> 0) then
+  if (Connect(FSocket, SockAddr, SizeOf(sockaddr_in)) <> 0) then
     begin
-      FStatus := 'Failed to connect to server';
+      FStatus := ER_CONNECT;
       Exit;
     end;
 
@@ -213,20 +227,22 @@ end;
 //---------------------------------------------------------------------------
 
 function TNsLibSSH2Session.StartSSHSession: Boolean;
+var
+  rc: Integer;
 begin
   Result := False;
 
   FSession := libssh2_session_init;
   if (FSession = nil) then
     begin
-      FStatus := 'Could not initialize SSH session';
+      FStatus := ER_SESSION_INIT;
       Exit;
     end;
 
-  rc := libssh2_session_handshake(FSession, FSock);
+  rc := libssh2_session_handshake(FSession, FSocket);
   if (rc <> 0) then
     begin
-      FStatus := Format('Error when starting up SSH session: %d', [rc]);
+      FStatus := Format(ER_SESSION_START, [rc]);
       Exit;
     end;
 
@@ -254,7 +270,7 @@ begin
       Auth := [AUTH_PASSWORD]
     else
       begin
-        FStatus := 'No supported authentication methods found';
+        FStatus := ER_AUTH_METHOD;
         Exit;
       end;
 
@@ -263,7 +279,7 @@ begin
       if (libssh2_userauth_publickey_fromfile(FSession, PAnsiChar(Username),
         PAnsiChar(PrivateKeyFile), PAnsiChar(PublicKeyFile), PAnsiChar(Password)) <> 0) then
         begin
-          FStatus := 'Authentication by public key failed';
+          FStatus := ER_PUBKEY;
           Exit;
         end;
     end
@@ -272,13 +288,13 @@ begin
       begin
         if (libssh2_userauth_password(FSession, PAnsiChar(Username), PAnsiChar(Password)) <> 0) then
           begin
-            FStatus := 'Authentication by password failed';
+            FStatus := ER_PASSWORD;
             Exit;
           end;
       end
     else
       begin
-        FStatus := 'No supported authentication methods found';
+        FStatus := ER_AUTH_METHOD;
         Exit;
       end;
 
@@ -287,21 +303,33 @@ end;
 
 //---------------------------------------------------------------------------
 
+procedure TNsLibSSH2Session.CloseEx;
+begin
+  if Opened then Close;
+end;
+
+//---------------------------------------------------------------------------
+
 procedure TNsLibSSH2Session.Close;
 begin
+  if Assigned(BeforeClose) then BeforeClose(Self);
+
   if FSession <> nil then
     begin
-      libssh2_session_disconnect(FSession, 'Session disconnect');
+      libssh2_session_disconnect(FSession, ST_SESSION_CLOSED);
       libssh2_session_free(FSession);
+      FSession := nil;
     end;
 
-  if FSock <> INVALID_SOCKET then
-    CloseSocket(FSock);
+  if FSocket <> INVALID_SOCKET then
+    CloseSocket(FSocket);
 
-  FFingerprint := '';
-  FUserAuth := '';
-  FStatus := 'Disconnected';
+  FFingerprint := VAL_EMPTY_STR;
+  FUserAuth := VAL_EMPTY_STR;
+  FStatus := ST_DISCONNECTED;
   FOpened := False;
+
+  if Assigned(AfterClose) then AfterClose(Self);
 end;
 
 //---------------------------------------------------------------------------

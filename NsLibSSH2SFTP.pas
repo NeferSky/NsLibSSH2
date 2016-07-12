@@ -3,29 +3,101 @@ unit NsLibSSH2SFTP;
 interface
 
 uses
-  Windows, SysUtils, Classes, WinSock, libssh2, libssh2_sftp, NsLibSSH2Session,
-    NsLibSSH2Const;
+  Forms, Windows, SysUtils, Classes, WinSock, libssh2, libssh2_sftp, NsLibSSH2Session,
+  NsLibSSH2Const;
 
+{
+type
+  TFTPListenThd = class(TThread)
+  public
+    procedure Execute; override;
+  end;
+
+type
+  TFTPThread = class(TThread)
+  private
+    FOwnerHandle: HWND;
+    FFTPSess: PLIBSSH2_SFTP;
+    FFTPHandle: PLIBSSH2_SFTP_HANDLE;
+    FSrcFile: AnsiString;
+    FDestFile: AnsiString;
+    property OwnerHandle: HWND read FOwnerHandle write FOwnerHandle;
+    property FTPSess: PLIBSSH2_SFTP read FFTPSess write FFTPSess;
+    property SrcFile: AnsiString read FSrcFile write FSrcFile;
+    property DestFile: AnsiString read FDestFile write FDestFile;
+  end;
+
+type
+  TFTPGetter = class(TFTPThread)
+  public
+    property OwnerHandle;
+    property FTPSess;
+    property SrcFile;
+    property DestFile;
+    procedure Execute; override;
+  end;
+
+type
+  TFTPPutter = class(TFTPThread)
+  public
+    property OwnerHandle;
+    property FTPSess;
+    property SrcFile;
+    property DestFile;
+    procedure Execute; override;
+  end;
+ }
 type
   TNsLibSSH2SFTP = class(TComponent)
   private
     FSession: TNsLibSSH2Session;
     FFTPSession: PLIBSSH2_SFTP;
     FFTPHandle: PLIBSSH2_SFTP_HANDLE;
-//    FListenThd: TThread; //TChanListenThd;
+//    FGetter: TFTPGetter;
+//    FPutter: TFTPPutter;
     FOpened: Boolean;
-    FStatus: String;
+    FStatus: string;
+    FTransferInProgress: Boolean;
+    //Events
+    FAfterCreate: TNotifyEvent;
+    FBeforeDestroy: TNotifyEvent;
+    FBeforeOpen: TNotifyEvent;
+    FAfterOpen: TNotifyEvent;
+    FBeforeClose: TNotifyEvent;
+    FAfterClose: TNotifyEvent;
+    FBeforeTransfer: TNotifyEvent;
+    FAfterTransfer: TNotifyEvent;
+    FBeforeGet: TNotifyEvent;
+    FAfterGet: TNotifyEvent;
+    FBeforePut: TNotifyEvent;
+    FAfterPut: TNotifyEvent;
+//    procedure GetterFree(Sender: TObject);
+//    procedure PutterFree(Sender: TObject);
+//    procedure WMTraderEvent(var msg: TMessage); message WM_User + 1;
   public
     constructor Create(AOwner: TComponent); override;
     destructor Destroy; override;
     function Open: Boolean;
     procedure Close;
-    procedure GetFile(PathOnServer: String);
-    procedure PutFile(PathOnServer: String);
+    procedure GetFile(SourceFile, DestinationFile: AnsiString);
+    procedure PutFile(SourceFile, DestinationFile: AnsiString);
   published
+    property AfterCreate: TNotifyEvent read FAfterCreate write FAfterCreate;
+    property BeforeDestroy: TNotifyEvent read FBeforeDestroy write FBeforeDestroy;
+    property BeforeOpen: TNotifyEvent read FBeforeOpen write FBeforeOpen;
+    property AfterOpen: TNotifyEvent read FAfterOpen write FAfterOpen;
+    property BeforeClose: TNotifyEvent read FBeforeClose write FBeforeClose;
+    property AfterClose: TNotifyEvent read FAfterClose write FAfterClose;
+    property BeforeTransfer: TNotifyEvent read FBeforeTransfer write FBeforeTransfer;
+    property AfterTransfer: TNotifyEvent read FAfterTransfer write FAfterTransfer;
+    property BeforeGet: TNotifyEvent read FBeforeGet write FBeforeGet;
+    property AfterGet: TNotifyEvent read FAfterGet write FAfterGet;
+    property BeforePut: TNotifyEvent read FBeforePut write FBeforePut;
+    property AfterPut: TNotifyEvent read FAfterPut write FAfterPut;
     property Session: TNsLibSSH2Session read FSession write FSession;
     property Opened: Boolean read FOpened;
-    property Status: String read FStatus;
+    property Status: string read FStatus;
+    property TransferInProgress: Boolean read FTransferInProgress;
   end;
 
 procedure Register;
@@ -46,15 +118,23 @@ begin
   inherited Create(AOwner);
 
   FSession := nil;
+  FFTPSession := nil;
+  FFTPHandle := nil;
+  FTransferInProgress := False;
   FOpened := False;
-  FStatus := 'Disconnected';
+  FStatus := ST_DISCONNECTED;
+
+  if Assigned(AfterCreate) then AfterCreate(Self);
 end;
 
 //---------------------------------------------------------------------------
 
 destructor TNsLibSSH2SFTP.Destroy;
 begin
-  if Opened then Close;
+  if Assigned(BeforeDestroy) then BeforeDestroy(Self);
+
+  if Opened then
+    Close;
 
   inherited Destroy;
 end;
@@ -63,91 +143,257 @@ end;
 
 function TNsLibSSH2SFTP.Open: Boolean;
 begin
+  if Assigned(BeforeOpen) then BeforeOpen(Self);
+
   Result := False;
 
   if FSession = nil then
-    raise Exception.Create('Session is not available');
+    raise Exception.Create(ER_SESSION_UNAVAILABLE);
 
   FFTPSession := libssh2_sftp_init(FSession.Session);
   if (FFTPSession = nil) then
   begin
-    FStatus := 'Unable to open SFTP session';
+    FStatus := ER_FTP_OPEN;
     Exit;
   end;
 
-  FStatus := 'Connected';
+  FStatus := ST_CONNECTED;
   FOpened := True;
   Result := Opened;
+
+  if Assigned(AfterOpen) then AfterOpen(Self);
 end;
 
 //---------------------------------------------------------------------------
 
 procedure TNsLibSSH2SFTP.Close;
 begin
-  libssh2_sftp_close(FFTPHandle);
-  libssh2_sftp_shutdown(FFTPSession);
+  if Assigned(BeforeClose) then BeforeClose(Self);
 
-  FStatus := 'Disconnected';
+  if FFTPSession <> nil then
+    begin
+      libssh2_sftp_shutdown(FFTPSession);
+      FFTPSession := nil;
+    end;
+
+  FStatus := ST_DISCONNECTED;
   FOpened := False;
+
+  if Assigned(AfterClose) then AfterClose(Self);
 end;
 
 //---------------------------------------------------------------------------
 
-procedure TNsLibSSH2SFTP.GetFile(PathOnServer: String);
+procedure TNsLibSSH2SFTP.GetFile(SourceFile, DestinationFile: string);
 var
-  mem: Array[1..1024] of Char;
-  rc: Integer;
+  DestinationDir: string;
+  Buffer: array[1..1024] of Char;
+  BytesReaded: Integer;
+  TargetFile: File;
 begin
+  if Assigned(BeforeGet) then BeforeGet(Self);
 
-  FFTPHandle := libssh2_sftp_open(FFTPSession, PAnsiChar(PathOnServer), LIBSSH2_FXF_READ, 0);
-  if (FFTPHandle = nil) then
-  begin
-    FStatus := ('Unable to open file with SFTP: ' +
-      IntToStr(libssh2_sftp_last_error(FFTPSession)));
-    Exit;
-  end;
+  if TransferInProgress then Exit;
+
+  DestinationDir := ExtractFilePath(DestinationFile);
+  if not DirectoryExists(DestinationDir) then
+    raise Exception.Create(ER_DEST_NOT_EXISTS);
+
+  if Assigned(BeforeTransfer) then BeforeTransfer(Self);
+
+  FTransferInProgress := True;
+  {
+  FGetter := TFTPGetter.Create(True);
+  FGetter.OnTerminate := GetterFree;
+//  FGetter.FreeOnTerminate := True;
+  FGetter.FTPSess := FFTPSession;
+  FGetter.SrcFile := SourceFile;
+  FGetter.DestFile := DestinationFile;
+  FGetter.Resume;
+   }
+  FFTPHandle := libssh2_sftp_open(FFTPSession, PAnsiChar(SourceFile),
+    LIBSSH2_FXF_READ, 0);
+  if (FFTPHandle = nil) then Exit;
+
+  AssignFile(TargetFile, DestinationFile);
+  ReWrite(TargetFile, 1);
 
   repeat
     begin
-      rc := libssh2_sftp_read(FFTPHandle, @mem, sizeof(mem));
+      Application.ProcessMessages;
+      BytesReaded := libssh2_sftp_read(FFTPHandle, @Buffer, SizeOf(Buffer));
 
-      if (rc > 0) then
-//        write(1, mem, rc)
+      if (BytesReaded > 0) then
+        BlockWrite(TargetFile, Buffer, BytesReaded)
       else
         Break;
     end;
   until False;
+
+  CloseFile(TargetFile);
+  libssh2_sftp_close(FFTPHandle);
+  FTransferInProgress := False;
+  if Assigned(AfterTransfer) then AfterTransfer(Self);
+  if Assigned(AfterGet) then AfterGet(Self);
 end;
 
 //---------------------------------------------------------------------------
 
-procedure TNsLibSSH2SFTP.PutFile(PathOnServer: String);
+procedure TNsLibSSH2SFTP.PutFile(SourceFile, DestinationFile: string);
 var
-  mem: Array[1..1024] of Char;
-  rc: Integer;
+  Buffer: array[1..1024] of Char;
+  BytesReaded: Integer;
+  TargetFile: file;
 begin
+  if Assigned(BeforePut) then BeforePut(Self);
 
-  FFTPHandle := libssh2_sftp_open(FFTPSession, PAnsiChar(PathOnServer), LIBSSH2_FXF_WRITE, 0);
-  if (FFTPHandle = nil) then
-  begin
-    FStatus := ('Unable to open file with SFTP: ' +
-      IntToStr(libssh2_sftp_last_error(FFTPSession)));
-    Exit;
-  end;
+  if TransferInProgress then Exit;
+
+  if Assigned(BeforeTransfer) then BeforeTransfer(Self);
+
+  FTransferInProgress := True;
+  {
+  FPutter := TFTPPutter.Create(True);
+//  FPutter.FreeOnTerminate := True;
+  FPutter.OnTerminate := PutterFree;
+  FPutter.FTPSess := FFTPSession;
+  FPutter.SrcFile := SourceFile;
+  FPutter.DestFile := DestinationFile;
+  FPutter.Resume;
+   }
+  FFTPHandle := libssh2_sftp_open(FFTPSession, PAnsiChar(DestinationFile),
+    (LIBSSH2_FXF_WRITE or LIBSSH2_FXF_CREAT or LIBSSH2_FXF_TRUNC),
+    (LIBSSH2_SFTP_S_IRUSR or LIBSSH2_SFTP_S_IWUSR or LIBSSH2_SFTP_S_IRGRP or
+    LIBSSH2_SFTP_S_IROTH));
+
+  if (FFTPHandle = nil) then Exit;
+
+  AssignFile(TargetFile, SourceFile);
+  ReSet(TargetFile, 1024);
 
   repeat
     begin
-      rc := libssh2_sftp_write(FFTPHandle, @mem, sizeof(mem));
+      Application.ProcessMessages;
+      BlockRead(TargetFile, Buffer, 1, BytesReaded);
 
-      if (rc > 0) then
-//        write(1, mem, rc)
+      if (BytesReaded > 0) then
+        libssh2_sftp_write(FFTPHandle, @Buffer, SizeOf(Buffer))
+      else
+        Break;
+    end;
+  until BytesReaded < 1;
+
+  CloseFile(TargetFile);
+  libssh2_sftp_close(FFTPHandle);
+  FTransferInProgress := False;
+  if Assigned(AfterTransfer) then AfterTransfer(Self);
+  if Assigned(AfterPut) then AfterPut(Self);
+end;
+
+//---------------------------------------------------------------------------
+{
+procedure TNsLibSSH2SFTP.GetterFree(Sender: TObject);
+begin
+  FTransferInProgress := False;
+  FGetter.Free;
+  FGetter := nil;
+end;
+ }
+//---------------------------------------------------------------------------
+{
+procedure TNsLibSSH2SFTP.PutterFree(Sender: TObject);
+begin
+  FTransferInProgress := False;
+  FPutter.Free;
+  FPutter := nil;
+end;
+ }
+//---------------------------------------------------------------------------
+{
+procedure TNsLibSSH2SFTP.WMTraderEvent(var msg: TMessage);
+begin
+  FTransferInProgress := False;
+end;
+ }
+//---------------------------------------------------------------------------
+
+{ TFTPGetter }
+{
+procedure TFTPGetter.Execute;
+var
+  Buf: array[1..1024] of Char;
+  BytesReaded: Integer;
+  TargetFile: file;
+begin
+  FFTPHandle := libssh2_sftp_open(FFTPSess, PAnsiChar(FSrcFile),
+    LIBSSH2_FXF_READ, 0);
+  if (FFTPHandle = nil) then
+    Terminate;
+
+  AssignFile(TargetFile, FDestFile);
+  ReWrite(TargetFile, 1);
+
+  repeat
+    begin
+      BytesReaded := libssh2_sftp_read(FFTPHandle, @Buf, SizeOf(Buf));
+
+      if (BytesReaded > 0) then
+        BlockWrite(TargetFile, Buf, BytesReaded)
       else
         Break;
     end;
   until False;
-end;
 
+  CloseFile(TargetFile);
+  libssh2_sftp_close(FFTPHandle);
+//  PostMessage(FOwnerHandle, WM_User + 1, 0, 0);
+end;
+ }
 //---------------------------------------------------------------------------
 
+{ TFTPPutter }
+{
+procedure TFTPPutter.Execute;
+var
+  Buf: array[1..1024] of Char;
+  BytesReaded: Integer;
+  TargetFile: file;
+begin
+  FFTPHandle := libssh2_sftp_open(FFTPSess, PAnsiChar(FDestFile),
+    (LIBSSH2_FXF_WRITE or LIBSSH2_FXF_CREAT or LIBSSH2_FXF_TRUNC),
+    (LIBSSH2_SFTP_S_IRUSR or LIBSSH2_SFTP_S_IWUSR or LIBSSH2_SFTP_S_IRGRP or
+    LIBSSH2_SFTP_S_IROTH));
+
+  if (FFTPHandle = nil) then
+    Terminate;
+
+  AssignFile(TargetFile, FSrcFile);
+  ReSet(TargetFile, 1024);
+
+  repeat
+    begin
+      BlockRead(TargetFile, Buf, 1, BytesReaded);
+
+      if (BytesReaded > 0) then
+        libssh2_sftp_write(FFTPHandle, @Buf, SizeOf(Buf))
+      else
+        Break;
+    end;
+  until BytesReaded < 1;
+
+  CloseFile(TargetFile);
+  libssh2_sftp_close(FFTPHandle);
+//  PostMessage(FOwnerHandle, WM_User + 1, 0, 0);
+end;
+ }
+//---------------------------------------------------------------------------
+
+{ TFTPListenThd }
+{
+procedure TFTPListenThd.Execute;
+begin
+  //
+end;
+ }
 end.
 
