@@ -25,6 +25,7 @@ const
 // Max counts
   MAX_CONNECTION_ATTEMPTS = 10;
   MAX_POOL_SIZE = 4;
+  FTP_PACKET_SIZE = 102400;
 
 // Statuses
   ST_CONNECTED = 'Connected';

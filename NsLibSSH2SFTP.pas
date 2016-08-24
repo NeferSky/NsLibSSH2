@@ -203,7 +203,7 @@ end;
 procedure TNsLibSSH2SFTP.GetFile(SourceFile, DestinationFile: string);
 var
   DestinationDir: string;
-  Buffer: array[1..102400] of Char;
+  Buffer: array[1..FTP_PACKET_SIZE] of Char;
   BytesReaded: Integer;
   TargetFile: File;
   SafeCounter: Integer;
@@ -277,10 +277,28 @@ end;
 
 procedure TNsLibSSH2SFTP.PutFile(SourceFile, DestinationFile: string);
 var
-  Buffer: array[1..1024] of Char;
+  Buffer: array[1..FTP_PACKET_SIZE] of Char;
   BytesReaded, BytesWritten: Integer;
   TargetFile: file;
   SafeCounter: Integer;
+
+  procedure AnalyseSendingResult;
+  begin
+    if BytesWritten < BytesReaded then
+      begin
+        if (BytesWritten <> LIBSSH2_ERROR_EAGAIN) then
+          BytesReaded := BytesReaded - BytesWritten
+        else
+          begin
+            Inc(SafeCounter);
+            Sleep(1000);
+          end;
+      end;
+  end;
+
+
+
+
 begin
   if Assigned(BeforePut) then BeforePut(Self);
 
@@ -316,33 +334,23 @@ begin
   if (FFTPHandle = nil) then Exit;
 
   AssignFile(TargetFile, SourceFile);
-  ReSet(TargetFile, 1024);
-
+  ReSet(TargetFile, 1);
   BytesReaded := 0;
+
   repeat
     begin
       Application.ProcessMessages;
       FillChar(Buffer, SizeOf(Buffer), #0);
-      BlockRead(TargetFile, Buffer, 1, BytesReaded);
+      BlockRead(TargetFile, Buffer, SizeOf(Buffer), BytesReaded);
 
       if (BytesReaded > 0) then
         begin
-          SafeCounter := 0;
+          SafeCounter := 1;
           repeat
-            Inc(SafeCounter);
-
-            /////////////////////////////////////////////////////////////////////////////////////
-            /////////////////////////////////////////////////////////// Something here wrong ////
-            /////////////////////////////////////////////////////////////////////////////////////
-
             BytesWritten := libssh2_sftp_write(FFTPHandle, @Buffer, BytesReaded);
-            // Just waiting. It's a kind of magic.
-            if BytesWritten < BytesReaded then Sleep(1000);
-            if BytesWritten < BytesReaded then raise Exception.Create('max');
-          until (BytesWritten <> LIBSSH2_ERROR_EAGAIN) or (SafeCounter > MAX_CONNECTION_ATTEMPTS);
-        end
-      else
-        Break;
+            AnalyseSendingResult;
+          until (BytesWritten = BytesReaded) or (SafeCounter > MAX_CONNECTION_ATTEMPTS);
+        end;
     end;
   until BytesReaded < 1;
 
