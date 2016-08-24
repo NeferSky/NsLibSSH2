@@ -15,19 +15,24 @@ const
   AUTH_PUBLICKEY = 2;
 
 // Default values
-  VAL_EMPTY_STR = '';
-  VAL_ZERO = 0;
-  VAL_FALSE = False;
+  DEFAULT_EMPTY_STR = '';
   DEFAULT_SSH_PORT = 22;
   DEFAULT_LOCAL_HOST = '127.0.0.1';
   DEFAULT_REMOTE_HOST = '192.168.1.1';
   DEFAULT_LOCAL_PORT = 3389;
   DEFAULT_REMOTE_PORT = 3389;
 
+// Max counts
+  MAX_CONNECTION_ATTEMPTS = 10;
+  MAX_POOL_SIZE = 4;
+
 // Statuses
   ST_CONNECTED = 'Connected';
   ST_DISCONNECTED = 'Disconnected';
   ST_SESSION_CLOSED = 'Session closed normally';
+
+// Results
+  INVALID_POOL_ITEM_INDEX = -1;
 
 // Error messages
   ER_WSAERROR = 'WSAStartup failed with error: %d';

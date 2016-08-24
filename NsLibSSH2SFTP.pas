@@ -142,15 +142,31 @@ end;
 //---------------------------------------------------------------------------
 
 function TNsLibSSH2SFTP.Open: Boolean;
+var
+  SafeCounter: Integer;
+
 begin
   if Assigned(BeforeOpen) then BeforeOpen(Self);
 
   Result := False;
 
   if FSession = nil then
-    raise Exception.Create(ER_SESSION_UNAVAILABLE);
+  begin
+    FStatus := ER_SESSION_UNAVAILABLE;
+    Exit;
+  end;
 
-  FFTPSession := libssh2_sftp_init(FSession.Session);
+  // Unclear why the channel is not created by the first time,
+  // that's why i have to make several attempts.
+  // I use the SafeCounter to prevent an infinite loop.
+  SafeCounter := 0;
+  repeat
+    Inc(SafeCounter);
+    FFTPSession := libssh2_sftp_init(FSession.Session);
+    // Just waiting. It's a kind of magic.
+    Sleep(1000);
+  until (FFTPSession <> nil) or (SafeCounter > MAX_CONNECTION_ATTEMPTS);
+
   if (FFTPSession = nil) then
   begin
     FStatus := ER_FTP_OPEN;
@@ -187,9 +203,10 @@ end;
 procedure TNsLibSSH2SFTP.GetFile(SourceFile, DestinationFile: string);
 var
   DestinationDir: string;
-  Buffer: array[1..1024] of Char;
+  Buffer: array[1..102400] of Char;
   BytesReaded: Integer;
   TargetFile: File;
+  SafeCounter: Integer;
 begin
   if Assigned(BeforeGet) then BeforeGet(Self);
 
@@ -211,8 +228,19 @@ begin
   FGetter.DestFile := DestinationFile;
   FGetter.Resume;
    }
-  FFTPHandle := libssh2_sftp_open(FFTPSession, PAnsiChar(SourceFile),
-    LIBSSH2_FXF_READ, 0);
+
+  // Unclear why the channel is not created by the first time,
+  // that's why i have to make several attempts.
+  // I use the SafeCounter to prevent an infinite loop.
+  SafeCounter := 0;
+  repeat
+    Inc(SafeCounter);
+    FFTPHandle := libssh2_sftp_open(FFTPSession, PAnsiChar(SourceFile),
+      LIBSSH2_FXF_READ, 0);
+    // Just waiting. It's a kind of magic.
+    Sleep(1000);
+  until (FFTPHandle <> nil) or (SafeCounter > MAX_CONNECTION_ATTEMPTS);
+
   if (FFTPHandle = nil) then Exit;
 
   AssignFile(TargetFile, DestinationFile);
@@ -221,7 +249,15 @@ begin
   repeat
     begin
       Application.ProcessMessages;
-      BytesReaded := libssh2_sftp_read(FFTPHandle, @Buffer, SizeOf(Buffer));
+      FillChar(Buffer, SizeOf(Buffer), #0);
+      SafeCounter := 0;
+
+      repeat
+        Inc(SafeCounter);
+        BytesReaded := libssh2_sftp_read(FFTPHandle, @Buffer, SizeOf(Buffer));
+        // Just waiting. It's a kind of magic.
+        if BytesReaded < 0 then Sleep(1000);
+      until (BytesReaded <> LIBSSH2_ERROR_EAGAIN) or (SafeCounter > MAX_CONNECTION_ATTEMPTS);
 
       if (BytesReaded > 0) then
         BlockWrite(TargetFile, Buffer, BytesReaded)
@@ -242,8 +278,9 @@ end;
 procedure TNsLibSSH2SFTP.PutFile(SourceFile, DestinationFile: string);
 var
   Buffer: array[1..1024] of Char;
-  BytesReaded: Integer;
+  BytesReaded, BytesWritten: Integer;
   TargetFile: file;
+  SafeCounter: Integer;
 begin
   if Assigned(BeforePut) then BeforePut(Self);
 
@@ -261,23 +298,49 @@ begin
   FPutter.DestFile := DestinationFile;
   FPutter.Resume;
    }
-  FFTPHandle := libssh2_sftp_open(FFTPSession, PAnsiChar(DestinationFile),
-    (LIBSSH2_FXF_WRITE or LIBSSH2_FXF_CREAT or LIBSSH2_FXF_TRUNC),
-    (LIBSSH2_SFTP_S_IRUSR or LIBSSH2_SFTP_S_IWUSR or LIBSSH2_SFTP_S_IRGRP or
-    LIBSSH2_SFTP_S_IROTH));
+
+  // Unclear why the channel is not created by the first time,
+  // that's why i have to make several attempts.
+  // I use the SafeCounter to prevent an infinite loop.
+  SafeCounter := 0;
+  repeat
+    Inc(SafeCounter);
+    FFTPHandle := libssh2_sftp_open(FFTPSession, PAnsiChar(DestinationFile),
+      (LIBSSH2_FXF_WRITE or LIBSSH2_FXF_CREAT or LIBSSH2_FXF_TRUNC),
+      (LIBSSH2_SFTP_S_IRUSR or LIBSSH2_SFTP_S_IWUSR or LIBSSH2_SFTP_S_IRGRP or
+      LIBSSH2_SFTP_S_IROTH));
+    // Just waiting. It's a kind of magic.
+    Sleep(1000);
+  until (FFTPHandle <> nil) or (SafeCounter > MAX_CONNECTION_ATTEMPTS);
 
   if (FFTPHandle = nil) then Exit;
 
   AssignFile(TargetFile, SourceFile);
   ReSet(TargetFile, 1024);
 
+  BytesReaded := 0;
   repeat
     begin
       Application.ProcessMessages;
+      FillChar(Buffer, SizeOf(Buffer), #0);
       BlockRead(TargetFile, Buffer, 1, BytesReaded);
 
       if (BytesReaded > 0) then
-        libssh2_sftp_write(FFTPHandle, @Buffer, SizeOf(Buffer))
+        begin
+          SafeCounter := 0;
+          repeat
+            Inc(SafeCounter);
+
+            /////////////////////////////////////////////////////////////////////////////////////
+            /////////////////////////////////////////////////////////// Something here wrong ////
+            /////////////////////////////////////////////////////////////////////////////////////
+
+            BytesWritten := libssh2_sftp_write(FFTPHandle, @Buffer, BytesReaded);
+            // Just waiting. It's a kind of magic.
+            if BytesWritten < BytesReaded then Sleep(1000);
+            if BytesWritten < BytesReaded then raise Exception.Create('max');
+          until (BytesWritten <> LIBSSH2_ERROR_EAGAIN) or (SafeCounter > MAX_CONNECTION_ATTEMPTS);
+        end
       else
         Break;
     end;

@@ -89,16 +89,16 @@ var
 begin
   inherited Create(AOwner);
 
-  FServerIP := VAL_EMPTY_STR;
+  FServerIP := DEFAULT_EMPTY_STR;
   FServerPort := DEFAULT_SSH_PORT;
-  FUsername := VAL_EMPTY_STR;
-  FPassword := VAL_EMPTY_STR;
-  FPublicKeyFile := VAL_EMPTY_STR;
-  FPrivateKeyFile := VAL_EMPTY_STR;
+  FUsername := DEFAULT_EMPTY_STR;
+  FPassword := DEFAULT_EMPTY_STR;
+  FPublicKeyFile := DEFAULT_EMPTY_STR;
+  FPrivateKeyFile := DEFAULT_EMPTY_STR;
   FAuthType := atNone;
-  FOpened := VAL_FALSE;
-  FFingerprint := VAL_EMPTY_STR;
-  FUserAuth := VAL_EMPTY_STR;
+  FOpened := False;
+  FFingerprint := DEFAULT_EMPTY_STR;
+  FUserAuth := DEFAULT_EMPTY_STR;
   FStatus := ST_DISCONNECTED;
   FSession := nil;
   Auth := [];
@@ -145,20 +145,18 @@ begin
   if Opened then Close;
 
   if not ConnectToServer then
-    begin
-      raise Exception.Create(FStatus);
-    end;
+    Exit;
 
   if not StartSSHSession then
     begin
       Close;
-      raise Exception.Create(FStatus);
+      Exit;
     end;
 
   if not AuthOnServer then
     begin
       Close;
-      raise Exception.Create(FStatus);
+      Exit;
     end;
 
   FStatus := ST_CONNECTED;
@@ -174,8 +172,6 @@ function TNsLibSSH2Session.OpenEx(AServerIP, AUserName, APassword,
   APublicKeyFile, APrivateKeyFile: String; AAuthType: TAuthType;
   AServerPort: Integer): Boolean;
 begin
-  Result := False;
-
   ServerIP := AServerIP;
   Username := AUserName;
   Password := APassword;
@@ -184,13 +180,7 @@ begin
   PrivateKeyFile := APrivateKeyFile;
   AuthType := AAuthType;
 
-  try
-    Open;
-  except
-    Exit;
-  end;
-
-  Result := True;
+  Result := Open;
 end;
 
 //---------------------------------------------------------------------------
@@ -277,7 +267,7 @@ begin
   if (Auth = [AUTH_PUBLICKEY]) then
     begin
       if (libssh2_userauth_publickey_fromfile(FSession, PAnsiChar(Username),
-        PAnsiChar(PrivateKeyFile), PAnsiChar(PublicKeyFile), PAnsiChar(Password)) <> 0) then
+        PAnsiChar(PublicKeyFile), PAnsiChar(PrivateKeyFile), PAnsiChar(Password)) <> 0) then
         begin
           FStatus := ER_PUBKEY;
           Exit;
@@ -298,6 +288,7 @@ begin
         Exit;
       end;
 
+  libssh2_session_set_blocking(FSession, 0);
   Result := True;
 end;
 
@@ -324,8 +315,8 @@ begin
   if FSocket <> INVALID_SOCKET then
     CloseSocket(FSocket);
 
-  FFingerprint := VAL_EMPTY_STR;
-  FUserAuth := VAL_EMPTY_STR;
+  FFingerprint := DEFAULT_EMPTY_STR;
+  FUserAuth := DEFAULT_EMPTY_STR;
   FStatus := ST_DISCONNECTED;
   FOpened := False;
 
