@@ -18,6 +18,7 @@ type
     property FTPSession: PLIBSSH2_SFTP read FFTPSession write FFTPSession;
     property SrcFile: AnsiString read FSrcFile write FSrcFile;
     property DestFile: AnsiString read FDestFile write FDestFile;
+    procedure StartExchange(SourceFile, DestinationFile: String);
   end;
 
 type
@@ -28,6 +29,7 @@ type
     property SrcFile;
     property DestFile;
     procedure Execute; override;
+    procedure StartExchange(SourceFile, DestinationFile: String);
   end;
 
 type
@@ -38,6 +40,7 @@ type
     property SrcFile;
     property DestFile;
     procedure Execute; override;
+    procedure StartExchange(SourceFile, DestinationFile: String);
   end;
 
 type
@@ -59,8 +62,6 @@ type
     FAfterOpen: TNotifyEvent;
     FBeforeClose: TNotifyEvent;
     FAfterClose: TNotifyEvent;
-    FBeforeTransfer: TNotifyEvent;
-    FAfterTransfer: TNotifyEvent;
     FBeforeGet: TNotifyEvent;
     FAfterGet: TNotifyEvent;
     FBeforePut: TNotifyEvent;
@@ -81,8 +82,6 @@ type
     property AfterOpen: TNotifyEvent read FAfterOpen write FAfterOpen;
     property BeforeClose: TNotifyEvent read FBeforeClose write FBeforeClose;
     property AfterClose: TNotifyEvent read FAfterClose write FAfterClose;
-    property BeforeTransfer: TNotifyEvent read FBeforeTransfer write FBeforeTransfer;
-    property AfterTransfer: TNotifyEvent read FAfterTransfer write FAfterTransfer;
     property BeforeGet: TNotifyEvent read FBeforeGet write FBeforeGet;
     property AfterGet: TNotifyEvent read FAfterGet write FAfterGet;
     property BeforePut: TNotifyEvent read FBeforePut write FBeforePut;
@@ -116,7 +115,12 @@ begin
   FFTPHandle := nil;
   FGetInProgress := False;
   FPutInProgress := False;
-  FGetter := nil;
+
+  FGetter := TFTPGetter.Create(True);
+  FGetter.OnTerminate := GetterFree;
+  FPutter := TFTPPutter.Create(True);
+  FPutter.OnTerminate := PutterFree;
+
   FPutter := nil;
   FOpened := False;
   FStatus := ST_DISCONNECTED;
@@ -170,6 +174,9 @@ begin
     Exit;
   end;
 
+  FGetter.FTPSession := FFTPSession;
+  FPutter.FTPSession := FFTPSession;
+
   FStatus := ST_CONNECTED;
   FOpened := True;
   Result := Opened;
@@ -209,17 +216,9 @@ begin
   if not DirectoryExists(DestinationDir) then
     raise Exception.Create(ER_DEST_NOT_EXISTS);
 
-  if Assigned(BeforeTransfer) then BeforeTransfer(Self);
-
   FGetInProgress := True;
 
-  FGetter := TFTPGetter.Create(True);
-  FGetter.OnTerminate := GetterFree;
-  FGetter.FreeOnTerminate := True;
-  FGetter.FTPSession := FFTPSession;
-  FGetter.SrcFile := SourceFile;
-  FGetter.DestFile := DestinationFile;
-  FGetter.Resume;
+  FGetter.StartExchange(SourceFile, DestinationFile: String);
 end;
 
 //---------------------------------------------------------------------------
@@ -230,37 +229,24 @@ begin
 
   if PutInProgress then Exit;
 
-  if Assigned(BeforeTransfer) then BeforeTransfer(Self);
-
   FPutInProgress := True;
 
-  FPutter := TFTPPutter.Create(True);
-  FPutter.FreeOnTerminate := True;
-  FPutter.OnTerminate := PutterFree;
-  FPutter.FTPSession := FFTPSession;
-  FPutter.SrcFile := SourceFile;
-  FPutter.DestFile := DestinationFile;
-  FPutter.Resume;
+  FPutter.StartExchange(SourceFile, DestinationFile: String);
 end;
 
 //---------------------------------------------------------------------------
 
-procedure TNsLibSSH2SFTP.GetterFree(Sender: TObject);
+procedure TNsLibSSH2SFTP.GetterEnd(Sender: TObject);
 begin
-//  FGetter.WaitFor;
-//  FGetter.Free;
-  FGetter := nil;
   FGetInProgress := False;
   if Assigned(AfterGet) then AfterGet(Self);
 end;
 
 //---------------------------------------------------------------------------
 
-procedure TNsLibSSH2SFTP.PutterFree(Sender: TObject);
+procedure TNsLibSSH2SFTP.PutterEnd(Sender: TObject);
 begin
   FPutInProgress := False;
-//  FPutter.Free;
-//  FPutter := nil;
   if Assigned(AfterPut) then AfterPut(Self);
 end;
 
@@ -309,13 +295,11 @@ begin
       else
         Break;
     end;
-  until False;
+  until Terminated;
 
   CloseFile(TargetFile);
   libssh2_sftp_close(FFTPHandle);
   FFTPHandle := nil;
-  Self.Terminate;
-  Self.DoTerminate;
 end;
 
 //---------------------------------------------------------------------------
@@ -378,10 +362,21 @@ begin
           until (BytesWritten = BytesReaded) or (SafeCounter > MAX_CONNECTION_ATTEMPTS);
         end;
     end;
-  until BytesReaded < 1;
+  until (BytesReaded < 1) or Terminated;
 
   CloseFile(TargetFile);
   libssh2_sftp_close(FFTPHandle);
+end;
+ 
+//---------------------------------------------------------------------------
+
+{ TFTPThread }
+
+procedure TFTPThread.StartExchange(SourceFile, DestinationFile: String);
+begin
+  SrcFile := SourceFile;
+  DestFile := DestinationFile;
+  Resume;
 end;
 
 end.
