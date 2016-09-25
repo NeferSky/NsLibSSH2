@@ -37,6 +37,7 @@ type
     FBeforeClose: TNotifyEvent;
     FAfterClose: TNotifyEvent;
   protected
+    procedure InitProperties;
     function ConnectToServer: Boolean;
     function StartSSHSession: Boolean;
     function AuthOnServer: Boolean;
@@ -83,12 +84,8 @@ end;
 
 { TNsLibSSH2Session }
 
-constructor TNsLibSSH2Session.Create(AOwner: TComponent);
-var
-  rc: Integer;
+procedure TNsLibSSH2Session.InitProperties;
 begin
-  inherited Create(AOwner);
-
   FServerIP := DEFAULT_EMPTY_STR;
   FServerPort := DEFAULT_SSH_PORT;
   FUsername := DEFAULT_EMPTY_STR;
@@ -102,6 +99,17 @@ begin
   FStatus := ST_DISCONNECTED;
   FSession := nil;
   Auth := [];
+end;
+
+//---------------------------------------------------------------------------
+
+constructor TNsLibSSH2Session.Create(AOwner: TComponent);
+var
+  rc: Integer;
+begin
+  inherited Create(AOwner);
+
+  InitProperties;
 
   rc := WSAStartup(MAKEWORD(2,0), WSA_Data);
   if (rc <> 0) then
