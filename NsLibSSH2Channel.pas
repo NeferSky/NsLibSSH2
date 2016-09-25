@@ -96,9 +96,12 @@ type
     FBeforeClose: TNotifyEvent;
     FAfterClose: TNotifyEvent;
   protected
+    procedure InitProperties;
+    procedure CreateListenerThread;
     function PrepareListenSocket: Boolean;
-    procedure StartListenerThread;
+    function StartListenerThread: Boolean;
     procedure StopListenerThread;
+    procedure DestroyListenerThread;
   public
     constructor Create(AOwner: TComponent); override;
     destructor Destroy; override;
@@ -138,10 +141,8 @@ end;
 
 { TNsLibSSH2Channel }
 
-constructor TNsLibSSH2Channel.Create(AOwner: TComponent);
+procedure TNsLibSSH2Channel.InitProperties;
 begin
-  inherited Create(AOwner);
-
   FLocalHost := DEFAULT_LOCAL_HOST;
   FLocalPort := DEFAULT_LOCAL_PORT;
   FRemoteHost := DEFAULT_REMOTE_HOST;
@@ -151,20 +152,28 @@ begin
   FListenerThd := nil;
   FOpened := False;
   FStatus := ST_DISCONNECTED;
+end;
 
-  if Assigned(AfterCreate) then
-    AfterCreate(Self);
+//---------------------------------------------------------------------------
+
+constructor TNsLibSSH2Channel.Create(AOwner: TComponent);
+begin
+  inherited Create(AOwner);
+
+  InitProperties;
+  CreateListenerThread;
+
+  if Assigned(AfterCreate) then AfterCreate(Self);
 end;
 
 //---------------------------------------------------------------------------
 
 destructor TNsLibSSH2Channel.Destroy;
 begin
-  if Assigned(BeforeDestroy) then
-    BeforeDestroy(Self);
+  if Assigned(BeforeDestroy) then BeforeDestroy(Self);
 
-  if Opened then
-    Close;
+  if Opened then Close;
+  DestroyListenerThread;
 
   inherited Destroy;
 end;
@@ -173,8 +182,7 @@ end;
 
 function TNsLibSSH2Channel.Open: Boolean;
 begin
-  if Assigned(BeforeOpen) then
-    BeforeOpen(Self);
+  if Assigned(BeforeOpen) then BeforeOpen(Self);
 
   Result := False;
 
@@ -187,17 +195,13 @@ begin
   if Opened then
     Close;
 
-  if not PrepareListenSocket then
-    Exit;
-
-  StartListenerThread;
+  if not StartListenerThread then Exit;
 
   FStatus := ST_CONNECTED;
   FOpened := True;
   Result := Opened;
 
-  if Assigned(AfterOpen) then
-    AfterOpen(Self);
+  if Assigned(AfterOpen) then AfterOpen(Self);
 end;
 
 //---------------------------------------------------------------------------
@@ -212,10 +216,31 @@ begin
 
   Result := Open;
 end;
+    
+//---------------------------------------------------------------------------
+
+procedure TNsLibSSH2Channel.Close;
+begin
+  if Assigned(BeforeClose) then BeforeClose(Self);
+
+  StopListenerThread;
+
+  FStatus := ST_DISCONNECTED;
+  FOpened := False;
+
+  if Assigned(AfterClose) then AfterClose(Self);
+end;
 
 //---------------------------------------------------------------------------
 
-function TNsLibSSH2Channel.PrepareListenSocket: Boolean;
+procedure TNsLibSSH2Channel.CloseEx;
+begin
+  if Opened then Close;
+end;
+
+//---------------------------------------------------------------------------
+
+function TNsLibSSH2Channel.CreateListenSocket: Boolean;
 var
   SockOpt: PAnsiChar;
   rc: Integer;
@@ -259,24 +284,60 @@ begin
 
   Result := True;
 end;
+     
+//---------------------------------------------------------------------------
+
+procedure TNsLibSSH2Channel.CloseListenSocket;
+begin
+  if FListenSocket <> INVALID_SOCKET then
+    begin
+      CloseSocket(FListenSocket);
+      FListenSocket := INVALID_SOCKET;
+    end;
+end;
 
 //---------------------------------------------------------------------------
 
-procedure TNsLibSSH2Channel.StartListenerThread;
+procedure TNsLibSSH2Channel.CreateListenerThread;
 begin
   FListenerThd := TListenerThd.Create(True);
   FListenerThd.FExchangerPool := TExchangerPool.Create;
-  FListenerThd.FreeOnTerminate := True;
-  FListenerThd.OnTerminate := FreeListenerThreadDesc;
+end;
+
+//---------------------------------------------------------------------------
+
+procedure TNsLibSSH2Channel.DestroyListenerThread;
+begin
+//
+end;
+
+//---------------------------------------------------------------------------
+
+procedure TNsLibSSH2Channel.PrepareThreadProperties;
+begin
+//  FListenerThd.FreeOnTerminate := True;
+//  FListenerThd.OnTerminate := FreeListenerThreadDesc;
   FListenerThd.ListenSocket := FListenSocket;
   FListenerThd.SockAddr := SockAddr;
   FListenerThd.SockAddrLen := SockAddrLen;
   FListenerThd.Session := FSession.Session;
   FListenerThd.RemoteHost := PAnsiChar(FRemoteHost);
   FListenerThd.RemotePort := RemotePort;
+end;
+
+//---------------------------------------------------------------------------
+
+function TNsLibSSH2Channel.StartListenerThread: Boolean;
+begin
+  Result := CreateListenSocket;
+
+  if not Result then Exit;
+
+  PrepareThreadProperties;
   FListenerThd.Resume;
 
   WaitForSingleObject(FListenerThd.Handle, 1000);
+  Result := True;
 end;
 
 //---------------------------------------------------------------------------
@@ -285,46 +346,18 @@ procedure TNsLibSSH2Channel.StopListenerThread;
 begin
   if FListenerThd <> nil then
   begin
-    if FListenSocket <> INVALID_SOCKET then
-    begin
-      CloseSocket(FListenSocket);
-      FListenSocket := INVALID_SOCKET;
-    end;
+    CloseListenSocket;
     FListenerThd.Terminate;
-    FListenerThd.WaitFor;
-    FListenerThd.Free;
+//    FListenerThd.WaitFor;
+//    FListenerThd.Free;
   end;
-end;
-
-//---------------------------------------------------------------------------
-
-procedure TNsLibSSH2Channel.Close;
-begin
-  if Assigned(BeforeClose) then
-    BeforeClose(Self);
-
-  StopListenerThread;
-
-  FStatus := ST_DISCONNECTED;
-  FOpened := False;
-
-  if Assigned(AfterClose) then
-    AfterClose(Self);
-end;
-
-//---------------------------------------------------------------------------
-
-procedure TNsLibSSH2Channel.CloseEx;
-begin
-  if Opened then
-    Close;
 end;
 
 //---------------------------------------------------------------------------
 
 procedure TNsLibSSH2Channel.FreeListenerThreadDesc(Sender: TObject);
 begin
-  FListenerThd := nil;
+//  FListenerThd := nil;
 end;
 
 //---------------------------------------------------------------------------
