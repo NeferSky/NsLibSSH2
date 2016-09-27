@@ -12,18 +12,21 @@ type
     FPoolIndex: Integer;
     FExchangeSocket: TSocket;
     FChannel: PLIBSSH2_CHANNEL;
-  public
-    property PoolIndex: Integer read FPoolIndex write FPoolIndex;
-    property ExchangeSocket: TSocket read FExchangeSocket write FExchangeSocket;
-    property Channel: PLIBSSH2_CHANNEL read FChannel write FChannel;
-    procedure Execute; override;
-    destructor Destroy; override;
-  end;
 
-type
-  TExchangerRec = record
-    Index: Integer;
-    FExchangerThd: TExchangerThd;
+    // Property getters/setters
+    function GetPoolIndex: Integer;
+    procedure SetPoolIndex(Value: Integer);
+    function GetExchangeSocket: TSocket;
+    procedure SetExchangeSocket(Value: TSocket);
+    function GetChannel: PLIBSSH2_CHANNEL;
+    procedure SetChannel(Value: PLIBSSH2_CHANNEL);
+  public
+    destructor Destroy; override;
+    procedure Execute; override;
+    property PoolIndex: Integer read GetPoolIndex write SetPoolIndex;
+    property ExchangeSocket: TSocket read GetExchangeSocket write
+      SetExchangeSocket;
+    property Channel: PLIBSSH2_CHANNEL read GetChannel write SetChannel;
   end;
 
 type
@@ -31,18 +34,21 @@ type
   private
     FCount: Integer;
     FPool: array[0..MAX_POOL_SIZE - 1] of TExchangerThd;
-    FSemaphore: THandle;
+
     procedure Clear;
     function GetFreePoolItem: Integer;
+    procedure RemovePoolThread(Sender: TObject);
+
+    // Property getters/setters
     function GetPoolItem(Index: Integer): TExchangerThd;
     procedure SetPoolItem(Index: Integer; Value: TExchangerThd);
-    procedure RemovePoolThread(Sender: TObject);
   public
     constructor Create;
     destructor Destroy; override;
     function Add(const ExchangerThd: TExchangerThd): Integer;
     procedure Remove(const Index: Integer);
-    property PoolItem[Index: Integer]: TExchangerThd read GetPoolItem write SetPoolItem; default;
+    property PoolItem[Index: Integer]: TExchangerThd read GetPoolItem write
+      SetPoolItem; default;
   end;
 
 type
@@ -60,16 +66,30 @@ type
 
     procedure StartExchangerThread;
     procedure StopExchangerThreads;
+
+    // Property getters/setters
+    function GetListenSocket: TSocket;
+    procedure SetListenSocket(Value: TSocket);
+    function GetSockAddr: sockaddr_in;
+    procedure SetSockAddr(Value: sockaddr_in);
+    function GetSockAddrLen: Integer;
+    procedure SetSockAddrLen(Value: Integer);
+    function GetSession: PLIBSSH2_SESSION;
+    procedure SetSession(Value: PLIBSSH2_SESSION);
+    function GetRemoteHost: PAnsiChar;
+    procedure SetRemoteHost(Value: PAnsiChar);
+    function GetRemotePort: Integer;
+    procedure SetRemotePort(Value: Integer);
   public
     constructor Create(CreateSuspended: Boolean);
     destructor Destroy; override;
     procedure Execute; override;
-    property ListenSocket: TSocket read FListenSocket write FListenSocket;
-    property SockAddr: sockaddr_in read FSockAddr write FSockAddr;
-    property SockAddrLen: Integer read FSockAddrLen write FSockAddrLen;
-    property Session: PLIBSSH2_SESSION read FSession write FSession;
-    property RemoteHost: PAnsiChar read FRemoteHost write FRemoteHost;
-    property RemotePort: Integer read FRemotePort write FRemotePort;
+    property ListenSocket: TSocket read GetListenSocket write SetListenSocket;
+    property SockAddr: sockaddr_in read GetSockAddr write SetSockAddr;
+    property SockAddrLen: Integer read GetSockAddrLen write SetSockAddrLen;
+    property Session: PLIBSSH2_SESSION read GetSession write SetSession;
+    property RemoteHost: PAnsiChar read GetRemoteHost write SetRemoteHost;
+    property RemotePort: Integer read GetRemotePort write SetRemotePort;
   end;
 
 type
@@ -105,27 +125,42 @@ type
     procedure DestroyListenerThread;
     function StartListenerThread: Boolean;
     procedure StopListenerThread;
+
+    // Property getters/setters
+    function GetSession: TNsLibSSH2Session;
+    procedure SetSession(Value: TNsLibSSH2Session);
+    function GetLocalHost: string;
+    procedure SetLocalHost(Value: string);
+    function GetLocalPort: Integer;
+    procedure SetLocalPort(Value: Integer);
+    function GetRemoteHost: string;
+    procedure SetRemoteHost(Value: string);
+    function GetRemotePort: Integer;
+    procedure SetRemotePort(Value: Integer);
+    function GetOpened: Boolean;
+    function GetStatus: string;
   public
     constructor Create(AOwner: TComponent); override;
     destructor Destroy; override;
     function Open: Boolean;
-    function OpenEx(ALocalHost, ARemoteHost: string;
-      ALocalPort, ARemotePort: Integer): Boolean;
+    function OpenEx(const ALocalHost, ARemoteHost: string;
+      const ALocalPort, ARemotePort: Integer): Boolean;
     procedure Close;
   published
     property AfterCreate: TNotifyEvent read FAfterCreate write FAfterCreate;
-    property BeforeDestroy: TNotifyEvent read FBeforeDestroy write FBeforeDestroy;
+    property BeforeDestroy: TNotifyEvent read FBeforeDestroy write
+      FBeforeDestroy;
     property BeforeOpen: TNotifyEvent read FBeforeOpen write FBeforeOpen;
     property AfterOpen: TNotifyEvent read FAfterOpen write FAfterOpen;
     property BeforeClose: TNotifyEvent read FBeforeClose write FBeforeClose;
     property AfterClose: TNotifyEvent read FAfterClose write FAfterClose;
-    property Session: TNsLibSSH2Session read FSession write FSession;
-    property LocalHost: string read FLocalHost write FLocalHost;
-    property LocalPort: Integer read FLocalPort write FLocalPort;
-    property RemoteHost: string read FRemoteHost write FRemoteHost;
-    property RemotePort: Integer read FRemotePort write FRemotePort;
-    property Opened: Boolean read FOpened;
-    property Status: string read FStatus;
+    property Session: TNsLibSSH2Session read GetSession write SetSession;
+    property LocalHost: string read GetLocalHost write SetLocalHost;
+    property LocalPort: Integer read GetLocalPort write SetLocalPort;
+    property RemoteHost: string read GetRemoteHost write SetRemoteHost;
+    property RemotePort: Integer read GetRemotePort write SetRemotePort;
+    property Opened: Boolean read GetOpened;
+    property Status: string read GetStatus;
   end;
 
 procedure Register;
@@ -137,11 +172,10 @@ begin
   RegisterComponents('NeferSky', [TNsLibSSH2Channel]);
 end;
 
-{ TNsLibSSH2Channel }
+//---------------------------------------------------------------------------
 
-//---------------------------------------------------------------------------
+{ TNsLibSSH2Channel }
 // Public
-//---------------------------------------------------------------------------
 
 constructor TNsLibSSH2Channel.Create(AOwner: TComponent);
 begin
@@ -149,16 +183,19 @@ begin
 
   InitProperties;
 
-  if Assigned(AfterCreate) then AfterCreate(Self);
+  if Assigned(AfterCreate) then
+    AfterCreate(Self);
 end;
 
 //---------------------------------------------------------------------------
 
 destructor TNsLibSSH2Channel.Destroy;
 begin
-  if Assigned(BeforeDestroy) then BeforeDestroy(Self);
+  if Assigned(BeforeDestroy) then
+    BeforeDestroy(Self);
 
-  if Opened then Close;
+  if Opened then
+    Close;
   DestroyListenerThread;
 
   inherited Destroy;
@@ -168,46 +205,50 @@ end;
 
 function TNsLibSSH2Channel.Open: Boolean;
 begin
-  if Assigned(BeforeOpen) then BeforeOpen(Self);
+  if Assigned(BeforeOpen) then
+    BeforeOpen(Self);
 
   Result := False;
-  
+
   if FSession = nil then
   begin
     FStatus := ER_SESSION_UNAVAILABLE;
     Exit;
   end;
 
-  if Opened then Close;
+  if Opened then
+    Close;
 
-  if not CreateListenSocket then Exit;
+  if not CreateListenSocket then
+    Exit;
 
   if not CreateListenerThread then
-    begin
-      CloseListenSocket;
-      Exit;
-    end;
+  begin
+    CloseListenSocket;
+    Exit;
+  end;
 
   SetListenerProperties;
 
   if not StartListenerThread then
-    begin
-      DestroyListenerThread;
-      CloseListenSocket;
-      Exit;
-    end;
+  begin
+    DestroyListenerThread;
+    CloseListenSocket;
+    Exit;
+  end;
 
   FStatus := ST_CONNECTED;
   FOpened := True;
   Result := Opened;
 
-  if Assigned(AfterOpen) then AfterOpen(Self);
+  if Assigned(AfterOpen) then
+    AfterOpen(Self);
 end;
 
 //---------------------------------------------------------------------------
 
-function TNsLibSSH2Channel.OpenEx(ALocalHost, ARemoteHost: string;
-  ALocalPort, ARemotePort: Integer): Boolean;
+function TNsLibSSH2Channel.OpenEx(const ALocalHost, ARemoteHost: string;
+  const ALocalPort, ARemotePort: Integer): Boolean;
 begin
   LocalHost := ALocalHost;
   RemoteHost := ARemoteHost;
@@ -216,29 +257,30 @@ begin
 
   Result := Open;
 end;
-    
+
 //---------------------------------------------------------------------------
 
 procedure TNsLibSSH2Channel.Close;
 begin
-  if Assigned(BeforeClose) then BeforeClose(Self);
+  if Assigned(BeforeClose) then
+    BeforeClose(Self);
 
   if Opened then
-    begin
-      StopListenerThread;
-      DestroyListenerThread;
-      CloseListenSocket;
+  begin
+    StopListenerThread;
+    DestroyListenerThread;
+    CloseListenSocket;
 
-      FStatus := ST_DISCONNECTED;
-      FOpened := False;
-    end;
+    FStatus := ST_DISCONNECTED;
+    FOpened := False;
+  end;
 
-  if Assigned(AfterClose) then AfterClose(Self);
+  if Assigned(AfterClose) then
+    AfterClose(Self);
 end;
 
 //---------------------------------------------------------------------------
 // Protected
-//---------------------------------------------------------------------------
 
 procedure TNsLibSSH2Channel.InitProperties;
 begin
@@ -318,16 +360,16 @@ begin
 
   Result := True;
 end;
-     
+
 //---------------------------------------------------------------------------
 
 procedure TNsLibSSH2Channel.CloseListenSocket;
 begin
   if FListenSocket <> INVALID_SOCKET then
-    begin
-      CloseSocket(FListenSocket);
-      FListenSocket := INVALID_SOCKET;
-    end;
+  begin
+    CloseSocket(FListenSocket);
+    FListenSocket := INVALID_SOCKET;
+  end;
 end;
 
 //---------------------------------------------------------------------------
@@ -377,7 +419,97 @@ end;
 
 //---------------------------------------------------------------------------
 
+function TNsLibSSH2Channel.GetLocalHost: string;
+begin
+  Result := FLocalHost;
+end;
+
+//---------------------------------------------------------------------------
+
+function TNsLibSSH2Channel.GetLocalPort: Integer;
+begin
+  Result := FLocalPort;
+end;
+
+//---------------------------------------------------------------------------
+
+function TNsLibSSH2Channel.GetOpened: Boolean;
+begin
+  Result := FOpened;
+end;
+
+//---------------------------------------------------------------------------
+
+function TNsLibSSH2Channel.GetRemoteHost: string;
+begin
+  Result := FRemoteHost;
+end;
+
+//---------------------------------------------------------------------------
+
+function TNsLibSSH2Channel.GetRemotePort: Integer;
+begin
+  Result := FRemotePort;
+end;
+
+//---------------------------------------------------------------------------
+
+function TNsLibSSH2Channel.GetSession: TNsLibSSH2Session;
+begin
+  Result := FSession;
+end;
+
+//---------------------------------------------------------------------------
+
+function TNsLibSSH2Channel.GetStatus: string;
+begin
+  Result := FStatus;
+end;
+
+//---------------------------------------------------------------------------
+
+procedure TNsLibSSH2Channel.SetLocalHost(Value: string);
+begin
+  if FLocalHost <> Value then
+    FLocalHost := Value;
+end;
+
+//---------------------------------------------------------------------------
+
+procedure TNsLibSSH2Channel.SetLocalPort(Value: Integer);
+begin
+  if FLocalPort <> Value then
+    FLocalPort := Value;
+end;
+
+//---------------------------------------------------------------------------
+
+procedure TNsLibSSH2Channel.SetRemoteHost(Value: string);
+begin
+  if FRemoteHost <> Value then
+    FRemoteHost := Value;
+end;
+
+//---------------------------------------------------------------------------
+
+procedure TNsLibSSH2Channel.SetRemotePort(Value: Integer);
+begin
+  if FRemotePort <> Value then
+    FRemotePort := Value;
+end;
+
+//---------------------------------------------------------------------------
+
+procedure TNsLibSSH2Channel.SetSession(Value: TNsLibSSH2Session);
+begin
+  if FSession <> Value then
+    FSession := Value;
+end;
+
+//---------------------------------------------------------------------------
+
 { TListenerThd }
+// Public
 
 constructor TListenerThd.Create(CreateSuspended: Boolean);
 begin
@@ -409,8 +541,9 @@ var
 begin
   while not Terminated do
   begin
-    FExchangeSocket := Accept(FListenSocket, @SockAddr, @SockAddrLen);
-    if ExchangeSocketInvalid then Continue;
+    FExchangeSocket := Accept(FListenSocket, @FSockAddr, @FSockAddrLen);
+    if ExchangeSocketInvalid then
+      Continue;
 
     SHost := inet_ntoa(SockAddr.sin_addr);
     SPort := ntohs(SockAddr.sin_port);
@@ -428,13 +561,15 @@ begin
     until (FExchangeChannel <> nil) or (SafeCounter > MAX_CONNECTION_ATTEMPTS);
 
     // if exceeded MAX_CONNECTION_ATTEMPTS, but channel is still not created.
-    if FExchangeChannel = nil then Continue;
+    if FExchangeChannel = nil then
+      Continue;
 
     StartExchangerThread;
   end;
 end;
 
 //---------------------------------------------------------------------------
+// Private
 
 procedure TListenerThd.StartExchangerThread;
 var
@@ -453,6 +588,96 @@ end;
 procedure TListenerThd.StopExchangerThreads;
 begin
   FExchangerPool.Clear;
+end;
+
+//---------------------------------------------------------------------------
+
+function TListenerThd.GetListenSocket: TSocket;
+begin
+  Result := FListenSocket;
+end;
+
+//---------------------------------------------------------------------------
+
+function TListenerThd.GetRemoteHost: PAnsiChar;
+begin
+  Result := FRemoteHost;
+end;
+
+//---------------------------------------------------------------------------
+
+function TListenerThd.GetRemotePort: Integer;
+begin
+  Result := FRemotePort;
+end;
+
+//---------------------------------------------------------------------------
+
+function TListenerThd.GetSession: PLIBSSH2_SESSION;
+begin
+  Result := FSession;
+end;
+
+//---------------------------------------------------------------------------
+
+function TListenerThd.GetSockAddr: sockaddr_in;
+begin
+  Result := FSockAddr;
+end;
+
+//---------------------------------------------------------------------------
+
+function TListenerThd.GetSockAddrLen: Integer;
+begin
+  Result := FSockAddrLen;
+end;
+
+//---------------------------------------------------------------------------
+
+procedure TListenerThd.SetListenSocket(Value: TSocket);
+begin
+  if FListenSocket <> Value then
+    FListenSocket := Value;
+end;
+
+//---------------------------------------------------------------------------
+
+procedure TListenerThd.SetRemoteHost(Value: PAnsiChar);
+begin
+  if FRemoteHost <> Value then
+    FRemoteHost := Value;
+end;
+
+//---------------------------------------------------------------------------
+
+procedure TListenerThd.SetRemotePort(Value: Integer);
+begin
+  if FRemotePort <> Value then
+    FRemotePort := Value;
+end;
+
+//---------------------------------------------------------------------------
+
+procedure TListenerThd.SetSession(Value: PLIBSSH2_SESSION);
+begin
+  if FSession <> Value then
+    FSession := Value;
+end;
+
+//---------------------------------------------------------------------------
+
+procedure TListenerThd.SetSockAddr(Value: sockaddr_in);
+begin
+  //  if FSockAddr <> Value then
+  FSockAddr := Value;
+end;
+
+//---------------------------------------------------------------------------
+
+procedure TListenerThd.SetSockAddrLen(Value: Integer);
+begin
+  if FSockAddrLen <> Value then
+    FSockAddrLen := Value;
 end;
 
 //---------------------------------------------------------------------------
@@ -538,15 +763,61 @@ begin
   end;
 
   if FExchangeSocket <> INVALID_SOCKET then
-    begin
-      CloseSocket(FExchangeSocket);
-      FExchangeSocket := INVALID_SOCKET;
-    end;
+  begin
+    CloseSocket(FExchangeSocket);
+    FExchangeSocket := INVALID_SOCKET;
+  end;
+end;
+
+//---------------------------------------------------------------------------
+
+function TExchangerThd.GetChannel: PLIBSSH2_CHANNEL;
+begin
+  Result := FChannel;
+end;
+
+//---------------------------------------------------------------------------
+
+function TExchangerThd.GetExchangeSocket: TSocket;
+begin
+  Result := FExchangeSocket;
+end;
+
+//---------------------------------------------------------------------------
+
+function TExchangerThd.GetPoolIndex: Integer;
+begin
+  Result := FPoolIndex;
+end;
+
+//---------------------------------------------------------------------------
+
+procedure TExchangerThd.SetChannel(Value: PLIBSSH2_CHANNEL);
+begin
+  if FChannel <> Value then
+    FChannel := Value;
+end;
+
+//---------------------------------------------------------------------------
+
+procedure TExchangerThd.SetExchangeSocket(Value: TSocket);
+begin
+  if FExchangeSocket <> Value then
+    FExchangeSocket := Value;
+end;
+
+//---------------------------------------------------------------------------
+
+procedure TExchangerThd.SetPoolIndex(Value: Integer);
+begin
+  if FPoolIndex <> Value then
+    FPoolIndex := Value;
 end;
 
 //---------------------------------------------------------------------------
 
 { TExchangerPool }
+// Public
 
 constructor TExchangerPool.Create;
 var
@@ -596,10 +867,10 @@ var
 begin
   NewPoolItemIndex := GetFreePoolItem;
   if NewPoolItemIndex = INVALID_POOL_ITEM_INDEX then
-    begin
-      Result := INVALID_POOL_ITEM_INDEX;
-      Exit;
-    end;
+  begin
+    Result := INVALID_POOL_ITEM_INDEX;
+    Exit;
+  end;
   PoolItem[NewPoolItemIndex] := ExchangerThd;
   PoolItem[NewPoolItemIndex].OnTerminate := RemovePoolThread;
   PoolItem[NewPoolItemIndex].PoolIndex := NewPoolItemIndex;
@@ -614,7 +885,7 @@ procedure TExchangerPool.Remove(const Index: Integer);
 begin
   if PoolItem[Index] <> nil then
   begin
-    if not(PoolItem[Index].Terminated) then
+    if not (PoolItem[Index].Terminated) then
     begin
       PoolItem[Index].Terminate;
       PoolItem[Index].WaitFor;
@@ -623,6 +894,31 @@ begin
     PoolItem[Index] := nil;
     Dec(FCount);
   end;
+end;
+
+//---------------------------------------------------------------------------
+// Private
+
+function TExchangerPool.GetFreePoolItem: Integer;
+var
+  I: Integer;
+begin
+  Result := INVALID_POOL_ITEM_INDEX;
+  for I := 0 to MAX_POOL_SIZE - 1 do
+  begin
+    if PoolItem[I] = nil then
+    begin
+      Result := I;
+      Break;
+    end;
+  end;
+end;
+
+//---------------------------------------------------------------------------
+
+procedure TExchangerPool.RemovePoolThread(Sender: TObject);
+begin
+  Remove((Sender as TExchangerThd).FPoolIndex);
 end;
 
 //---------------------------------------------------------------------------
@@ -636,34 +932,9 @@ end;
 
 procedure TExchangerPool.SetPoolItem(Index: Integer; Value: TExchangerThd);
 begin
-  FPool[Index] := Value;
+  if FPool[Index] <> Value then
+    FPool[Index] := Value;
 end;
-
-//---------------------------------------------------------------------------
-
-function TExchangerPool.GetFreePoolItem: Integer;
-var
-  I: Integer;
-begin
-  Result := INVALID_POOL_ITEM_INDEX;
-  for I := 0 to MAX_POOL_SIZE - 1 do
-  begin
-    if PoolItem[I] = nil then
-      begin
-        Result := I;
-        Break;
-      end;
-  end;
-end;
-
-//---------------------------------------------------------------------------
-
-procedure TExchangerPool.RemovePoolThread(Sender: TObject);
-begin
-  Remove((Sender as TExchangerThd).FPoolIndex);
-end;
-
-//---------------------------------------------------------------------------
 
 end.
 

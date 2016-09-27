@@ -14,7 +14,7 @@ const
   AUTH_PASSWORD = 1;
   AUTH_PUBLICKEY = 2;
 
-// Default values
+  // Default values
   DEFAULT_EMPTY_STR = '';
   DEFAULT_SSH_PORT = 22;
   DEFAULT_LOCAL_HOST = '127.0.0.1';
@@ -22,20 +22,20 @@ const
   DEFAULT_LOCAL_PORT = 3389;
   DEFAULT_REMOTE_PORT = 3389;
 
-// Max counts
+  // Max counts
   MAX_CONNECTION_ATTEMPTS = 10;
   MAX_POOL_SIZE = 4;
   FTP_PACKET_SIZE = 102400;
 
-// Statuses
+  // Statuses
   ST_CONNECTED = 'Connected';
   ST_DISCONNECTED = 'Disconnected';
   ST_SESSION_CLOSED = 'Session closed normally';
 
-// Results
+  // Results
   INVALID_POOL_ITEM_INDEX = -1;
 
-// Error messages
+  // Error messages
   ER_WSAERROR = 'WSAStartup failed with error: %d';
   ER_LIBSSH2_INIT = 'libssh2 initialization failed with error: %d';
   ER_OPEN_SOCKET = 'Failed to open socket';
@@ -56,7 +56,7 @@ const
   ER_FAILED_PTY = 'Failed requesting pty';
   ER_REQUEST_SHELL = 'Unable to request shell on allocated pty';
 
-procedure DebugLog(S: String); overload;
+procedure DebugLog(S: string); overload;
 procedure DebugLog(I: Integer); overload;
 
 var
@@ -69,35 +69,35 @@ var
   F: TextFile;
 begin
   if not FileExists('debug.log') then
-    begin
-      AssignFile(F, 'debug.log');
-      Rewrite(F);
-      Writeln(F, '==== DEBUG LOG ====');
-      CloseFile(F);
-    end;
+  begin
+    AssignFile(F, 'debug.log');
+    Rewrite(F);
+    Writeln(F, '==== DEBUG LOG ====');
+    CloseFile(F);
+  end;
 end;
 
-procedure DebugLog(S: String);
+procedure DebugLog(S: string);
 var
   F: TextFile;
 begin
 
   while True do
     if not FileBusy then
-      begin
-        try
-          FileBusy := True;
-          CheckLogExists;
-          AssignFile(F, 'debug.log');
-          Append(F);
-          WriteLn(F, S);
-          CloseFile(F);
-          FileBusy := False;
-          Break;
-        except
-          ;
-        end;
+    begin
+      try
+        FileBusy := True;
+        CheckLogExists;
+        AssignFile(F, 'debug.log');
+        Append(F);
+        WriteLn(F, S);
+        CloseFile(F);
+        FileBusy := False;
+        Break;
+      except
+        ;
       end;
+    end;
 end;
 
 procedure DebugLog(I: Integer);

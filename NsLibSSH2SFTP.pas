@@ -14,33 +14,43 @@ type
     FFTPHandle: PLIBSSH2_SFTP_HANDLE;
     FSrcFile: AnsiString;
     FDestFile: AnsiString;
-    property OwnerHandle: HWND read FOwnerHandle write FOwnerHandle;
-    property FTPSession: PLIBSSH2_SFTP read FFTPSession write FFTPSession;
-    property SrcFile: AnsiString read FSrcFile write FSrcFile;
-    property DestFile: AnsiString read FDestFile write FDestFile;
-    procedure StartExchange(SourceFile, DestinationFile: String);
+
+    // Property getters/setters
+    function GetOwnerHandle: HWND;
+    procedure SetOwnerHandle(Value: HWND);
+    function GetFTPSession: PLIBSSH2_SFTP;
+    procedure SetFTPSession(Value: PLIBSSH2_SFTP);
+    function GetSrcFile: AnsiString;
+    procedure SetSrcFile(Value: AnsiString);
+    function GetDestFile: AnsiString;
+    procedure SetDestFile(Value: AnsiString);
+
+    property OwnerHandle: HWND read GetOwnerHandle write SetOwnerHandle;
+    property FTPSession: PLIBSSH2_SFTP read GetFTPSession write SetFTPSession;
+    property SrcFile: AnsiString read GetSrcFile write SetSrcFile;
+    property DestFile: AnsiString read GetDestFile write SetDestFile;
+  public
+    procedure StartExchange(const SourceFile, DestinationFile: string);
   end;
 
 type
   TFTPGetter = class(TFTPThread)
   public
+    procedure Execute; override;
     property OwnerHandle;
     property FTPSession;
     property SrcFile;
     property DestFile;
-    procedure Execute; override;
-    procedure StartExchange(SourceFile, DestinationFile: String);
   end;
 
 type
   TFTPPutter = class(TFTPThread)
   public
+    procedure Execute; override;
     property OwnerHandle;
     property FTPSession;
     property SrcFile;
     property DestFile;
-    procedure Execute; override;
-    procedure StartExchange(SourceFile, DestinationFile: String);
   end;
 
 type
@@ -66,18 +76,28 @@ type
     FAfterGet: TNotifyEvent;
     FBeforePut: TNotifyEvent;
     FAfterPut: TNotifyEvent;
-    procedure GetterFree(Sender: TObject);
-    procedure PutterFree(Sender: TObject);
+
+    procedure GetterEnd(Sender: TObject);
+    procedure PutterEnd(Sender: TObject);
+
+    // Property getters/setters
+    function GetSession: TNsLibSSH2Session;
+    procedure SetSession(Value: TNsLibSSH2Session);
+    function GetOpened: Boolean;
+    function GetStatus: string;
+    function GetGetInProgress: Boolean;
+    function GetPutInProgress: Boolean;
   public
     constructor Create(AOwner: TComponent); override;
     destructor Destroy; override;
     function Open: Boolean;
     procedure Close;
-    procedure GetFile(SourceFile, DestinationFile: AnsiString);
-    procedure PutFile(SourceFile, DestinationFile: AnsiString);
+    procedure GetFile(const SourceFile, DestinationFile: AnsiString);
+    procedure PutFile(const SourceFile, DestinationFile: AnsiString);
   published
     property AfterCreate: TNotifyEvent read FAfterCreate write FAfterCreate;
-    property BeforeDestroy: TNotifyEvent read FBeforeDestroy write FBeforeDestroy;
+    property BeforeDestroy: TNotifyEvent read FBeforeDestroy write
+      FBeforeDestroy;
     property BeforeOpen: TNotifyEvent read FBeforeOpen write FBeforeOpen;
     property AfterOpen: TNotifyEvent read FAfterOpen write FAfterOpen;
     property BeforeClose: TNotifyEvent read FBeforeClose write FBeforeClose;
@@ -86,11 +106,11 @@ type
     property AfterGet: TNotifyEvent read FAfterGet write FAfterGet;
     property BeforePut: TNotifyEvent read FBeforePut write FBeforePut;
     property AfterPut: TNotifyEvent read FAfterPut write FAfterPut;
-    property Session: TNsLibSSH2Session read FSession write FSession;
-    property Opened: Boolean read FOpened;
-    property Status: string read FStatus;
-    property GetInProgress: Boolean read FGetInProgress;
-    property PutInProgress: Boolean read FPutInProgress;
+    property Session: TNsLibSSH2Session read GetSession write SetSession;
+    property Opened: Boolean read GetOpened;
+    property Status: string read GetStatus;
+    property GetInProgress: Boolean read GetGetInProgress;
+    property PutInProgress: Boolean read GetPutInProgress;
   end;
 
 procedure Register;
@@ -105,6 +125,7 @@ end;
 //---------------------------------------------------------------------------
 
 { TNsLibSSH2SFTP }
+// Public
 
 constructor TNsLibSSH2SFTP.Create(AOwner: TComponent);
 begin
@@ -116,23 +137,20 @@ begin
   FGetInProgress := False;
   FPutInProgress := False;
 
-  FGetter := TFTPGetter.Create(True);
-  FGetter.OnTerminate := GetterFree;
-  FPutter := TFTPPutter.Create(True);
-  FPutter.OnTerminate := PutterFree;
-
   FPutter := nil;
   FOpened := False;
   FStatus := ST_DISCONNECTED;
 
-  if Assigned(AfterCreate) then AfterCreate(Self);
+  if Assigned(AfterCreate) then
+    AfterCreate(Self);
 end;
 
 //---------------------------------------------------------------------------
 
 destructor TNsLibSSH2SFTP.Destroy;
 begin
-  if Assigned(BeforeDestroy) then BeforeDestroy(Self);
+  if Assigned(BeforeDestroy) then
+    BeforeDestroy(Self);
 
   if Opened then
     Close;
@@ -147,7 +165,8 @@ var
   SafeCounter: Integer;
 
 begin
-  if Assigned(BeforeOpen) then BeforeOpen(Self);
+  if Assigned(BeforeOpen) then
+    BeforeOpen(Self);
 
   Result := False;
 
@@ -174,43 +193,45 @@ begin
     Exit;
   end;
 
-  FGetter.FTPSession := FFTPSession;
-  FPutter.FTPSession := FFTPSession;
-
   FStatus := ST_CONNECTED;
   FOpened := True;
   Result := Opened;
 
-  if Assigned(AfterOpen) then AfterOpen(Self);
+  if Assigned(AfterOpen) then
+    AfterOpen(Self);
 end;
 
 //---------------------------------------------------------------------------
 
 procedure TNsLibSSH2SFTP.Close;
 begin
-  if Assigned(BeforeClose) then BeforeClose(Self);
+  if Assigned(BeforeClose) then
+    BeforeClose(Self);
 
   if FFTPSession <> nil then
-    begin
-      libssh2_sftp_shutdown(FFTPSession);
-      FFTPSession := nil;
-    end;
+  begin
+    libssh2_sftp_shutdown(FFTPSession);
+    FFTPSession := nil;
+  end;
 
   FStatus := ST_DISCONNECTED;
   FOpened := False;
 
-  if Assigned(AfterClose) then AfterClose(Self);
+  if Assigned(AfterClose) then
+    AfterClose(Self);
 end;
 
 //---------------------------------------------------------------------------
 
-procedure TNsLibSSH2SFTP.GetFile(SourceFile, DestinationFile: string);
+procedure TNsLibSSH2SFTP.GetFile(const SourceFile, DestinationFile: string);
 var
   DestinationDir: string;
 begin
-  if Assigned(BeforeGet) then BeforeGet(Self);
+  if Assigned(BeforeGet) then
+    BeforeGet(Self);
 
-  if GetInProgress then Exit;
+  if GetInProgress then
+    Exit;
 
   DestinationDir := ExtractFilePath(DestinationFile);
   if not DirectoryExists(DestinationDir) then
@@ -218,28 +239,38 @@ begin
 
   FGetInProgress := True;
 
-  FGetter.StartExchange(SourceFile, DestinationFile: String);
+  FGetter := TFTPGetter.Create(True);
+  FGetter.OnTerminate := GetterEnd;
+  FGetter.FTPSession := FFTPSession;
+  FGetter.StartExchange(SourceFile, DestinationFile);
 end;
 
 //---------------------------------------------------------------------------
 
-procedure TNsLibSSH2SFTP.PutFile(SourceFile, DestinationFile: string);
+procedure TNsLibSSH2SFTP.PutFile(const SourceFile, DestinationFile: string);
 begin
-  if Assigned(BeforePut) then BeforePut(Self);
+  if Assigned(BeforePut) then
+    BeforePut(Self);
 
-  if PutInProgress then Exit;
+  if PutInProgress then
+    Exit;
 
   FPutInProgress := True;
 
-  FPutter.StartExchange(SourceFile, DestinationFile: String);
+  FPutter := TFTPPutter.Create(True);
+  FPutter.OnTerminate := PutterEnd;
+  FPutter.FTPSession := FFTPSession;
+  FPutter.StartExchange(SourceFile, DestinationFile);
 end;
 
 //---------------------------------------------------------------------------
+// Private
 
 procedure TNsLibSSH2SFTP.GetterEnd(Sender: TObject);
 begin
   FGetInProgress := False;
-  if Assigned(AfterGet) then AfterGet(Self);
+  if Assigned(AfterGet) then
+    AfterGet(Self);
 end;
 
 //---------------------------------------------------------------------------
@@ -247,7 +278,51 @@ end;
 procedure TNsLibSSH2SFTP.PutterEnd(Sender: TObject);
 begin
   FPutInProgress := False;
-  if Assigned(AfterPut) then AfterPut(Self);
+  if Assigned(AfterPut) then
+    AfterPut(Self);
+end;
+
+//---------------------------------------------------------------------------
+
+function TNsLibSSH2SFTP.GetGetInProgress: Boolean;
+begin
+  Result := FGetInProgress;
+end;
+
+//---------------------------------------------------------------------------
+
+function TNsLibSSH2SFTP.GetOpened: Boolean;
+begin
+  Result := FOpened;
+end;
+
+//---------------------------------------------------------------------------
+
+function TNsLibSSH2SFTP.GetPutInProgress: Boolean;
+begin
+  Result := FPutInProgress;
+end;
+
+//---------------------------------------------------------------------------
+
+function TNsLibSSH2SFTP.GetSession: TNsLibSSH2Session;
+begin
+  Result := FSession;
+end;
+
+//---------------------------------------------------------------------------
+
+function TNsLibSSH2SFTP.GetStatus: string;
+begin
+  Result := FStatus;
+end;
+
+//---------------------------------------------------------------------------
+
+procedure TNsLibSSH2SFTP.SetSession(Value: TNsLibSSH2Session);
+begin
+  if FSession <> Value then
+    FSession := Value;
 end;
 
 //---------------------------------------------------------------------------
@@ -273,7 +348,8 @@ begin
     Sleep(1000);
   until (FFTPHandle <> nil) or (SafeCounter > MAX_CONNECTION_ATTEMPTS);
 
-  if (FFTPHandle = nil) then Terminate;
+  if (FFTPHandle = nil) then
+    Terminate;
 
   AssignFile(TargetFile, FDestFile);
   ReWrite(TargetFile, 1);
@@ -287,8 +363,10 @@ begin
         Inc(SafeCounter);
         BytesReaded := libssh2_sftp_read(FFTPHandle, @Buffer, SizeOf(Buffer));
         // Just waiting. It's a kind of magic.
-        if BytesReaded < 0 then Sleep(100);
-      until (BytesReaded <> LIBSSH2_ERROR_EAGAIN) or (SafeCounter > MAX_CONNECTION_ATTEMPTS);
+        if BytesReaded < 0 then
+          Sleep(100);
+      until (BytesReaded <> LIBSSH2_ERROR_EAGAIN) or (SafeCounter >
+        MAX_CONNECTION_ATTEMPTS);
 
       if (BytesReaded > 0) then
         BlockWrite(TargetFile, Buffer, BytesReaded)
@@ -316,15 +394,15 @@ var
   procedure AnalyseSendingResult;
   begin
     if BytesWritten < BytesReaded then
+    begin
+      if (BytesWritten <> LIBSSH2_ERROR_EAGAIN) then
+        BytesReaded := BytesReaded - BytesWritten
+      else
       begin
-        if (BytesWritten <> LIBSSH2_ERROR_EAGAIN) then
-          BytesReaded := BytesReaded - BytesWritten
-        else
-          begin
-            Inc(SafeCounter);
-            Sleep(100);
-          end;
+        Inc(SafeCounter);
+        Sleep(100);
       end;
+    end;
   end;
 
 begin
@@ -342,7 +420,8 @@ begin
     Sleep(1000);
   until (FFTPHandle <> nil) or (SafeCounter > MAX_CONNECTION_ATTEMPTS);
 
-  if (FFTPHandle = nil) then Terminate;
+  if (FFTPHandle = nil) then
+    Terminate;
 
   AssignFile(TargetFile, FSrcFile);
   ReSet(TargetFile, 1);
@@ -354,29 +433,90 @@ begin
       BlockRead(TargetFile, Buffer, SizeOf(Buffer), BytesReaded);
 
       if (BytesReaded > 0) then
-        begin
-          SafeCounter := 1;
-          repeat
-            BytesWritten := libssh2_sftp_write(FFTPHandle, @Buffer, BytesReaded);
-            AnalyseSendingResult;
-          until (BytesWritten = BytesReaded) or (SafeCounter > MAX_CONNECTION_ATTEMPTS);
-        end;
+      begin
+        SafeCounter := 1;
+        repeat
+          BytesWritten := libssh2_sftp_write(FFTPHandle, @Buffer, BytesReaded);
+          AnalyseSendingResult;
+        until (BytesWritten = BytesReaded) or (SafeCounter >
+          MAX_CONNECTION_ATTEMPTS);
+      end;
     end;
   until (BytesReaded < 1) or Terminated;
 
   CloseFile(TargetFile);
   libssh2_sftp_close(FFTPHandle);
 end;
- 
+
 //---------------------------------------------------------------------------
 
 { TFTPThread }
 
-procedure TFTPThread.StartExchange(SourceFile, DestinationFile: String);
+procedure TFTPThread.StartExchange(const SourceFile, DestinationFile: string);
 begin
   SrcFile := SourceFile;
   DestFile := DestinationFile;
   Resume;
+end;
+
+//---------------------------------------------------------------------------
+
+function TFTPThread.GetDestFile: AnsiString;
+begin
+  Result := FDestFile;
+end;
+
+//---------------------------------------------------------------------------
+
+function TFTPThread.GetFTPSession: PLIBSSH2_SFTP;
+begin
+  Result := FFTPSession;
+end;
+
+//---------------------------------------------------------------------------
+
+function TFTPThread.GetOwnerHandle: HWND;
+begin
+  Result := FOwnerHandle;
+end;
+
+//---------------------------------------------------------------------------
+
+function TFTPThread.GetSrcFile: AnsiString;
+begin
+  Result := FSrcFile;
+end;
+
+//---------------------------------------------------------------------------
+
+procedure TFTPThread.SetDestFile(Value: AnsiString);
+begin
+  if FDestFile <> Value then
+    FDestFile := Value;
+end;
+
+//---------------------------------------------------------------------------
+
+procedure TFTPThread.SetFTPSession(Value: PLIBSSH2_SFTP);
+begin
+  if FFTPSession <> Value then
+    FFTPSession := Value;
+end;
+
+//---------------------------------------------------------------------------
+
+procedure TFTPThread.SetOwnerHandle(Value: HWND);
+begin
+  if FOwnerHandle <> Value then
+    FOwnerHandle := Value;
+end;
+
+//---------------------------------------------------------------------------
+
+procedure TFTPThread.SetSrcFile(Value: AnsiString);
+begin
+  if FSrcFile <> Value then
+    FSrcFile := Value;
 end;
 
 end.
