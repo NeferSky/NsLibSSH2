@@ -49,7 +49,6 @@ type
       APublicKeyFile, APrivateKeyFile: String; AAuthType: TAuthType;
       AServerPort: Integer): Boolean;
     procedure Close;
-    procedure CloseEx;
     property Session: PLIBSSH2_SESSION read FSession;
     property Fingerprint: PAnsiChar read FFingerprint;
     property UserAuth: PAnsiChar read FUserAuth;
@@ -80,27 +79,10 @@ begin
   RegisterComponents('NeferSky', [TNsLibSSH2Session]);
 end;
 
-//---------------------------------------------------------------------------
-
 { TNsLibSSH2Session }
-
-procedure TNsLibSSH2Session.InitProperties;
-begin
-  FServerIP := DEFAULT_EMPTY_STR;
-  FServerPort := DEFAULT_SSH_PORT;
-  FUsername := DEFAULT_EMPTY_STR;
-  FPassword := DEFAULT_EMPTY_STR;
-  FPublicKeyFile := DEFAULT_EMPTY_STR;
-  FPrivateKeyFile := DEFAULT_EMPTY_STR;
-  FAuthType := atNone;
-  FOpened := False;
-  FFingerprint := DEFAULT_EMPTY_STR;
-  FUserAuth := DEFAULT_EMPTY_STR;
-  FStatus := ST_DISCONNECTED;
-  FSession := nil;
-  Auth := [];
-end;
-
+ 
+//---------------------------------------------------------------------------
+// Public
 //---------------------------------------------------------------------------
 
 constructor TNsLibSSH2Session.Create(AOwner: TComponent);
@@ -189,6 +171,51 @@ begin
   AuthType := AAuthType;
 
   Result := Open;
+end;
+ 
+//---------------------------------------------------------------------------
+
+procedure TNsLibSSH2Session.Close;
+begin
+  if Assigned(BeforeClose) then BeforeClose(Self);
+
+  if FSession <> nil then
+    begin
+      libssh2_session_disconnect(FSession, ST_SESSION_CLOSED);
+      libssh2_session_free(FSession);
+      FSession := nil;
+    end;
+
+  if FSocket <> INVALID_SOCKET then
+    CloseSocket(FSocket);
+
+  FFingerprint := DEFAULT_EMPTY_STR;
+  FUserAuth := DEFAULT_EMPTY_STR;
+  FStatus := ST_DISCONNECTED;
+  FOpened := False;
+
+  if Assigned(AfterClose) then AfterClose(Self);
+end;
+
+//---------------------------------------------------------------------------
+// Protected
+//---------------------------------------------------------------------------
+
+procedure TNsLibSSH2Session.InitProperties;
+begin
+  FServerIP := DEFAULT_EMPTY_STR;
+  FServerPort := DEFAULT_SSH_PORT;
+  FUsername := DEFAULT_EMPTY_STR;
+  FPassword := DEFAULT_EMPTY_STR;
+  FPublicKeyFile := DEFAULT_EMPTY_STR;
+  FPrivateKeyFile := DEFAULT_EMPTY_STR;
+  FAuthType := atNone;
+  FOpened := False;
+  FFingerprint := DEFAULT_EMPTY_STR;
+  FUserAuth := DEFAULT_EMPTY_STR;
+  FStatus := ST_DISCONNECTED;
+  FSession := nil;
+  Auth := [];
 end;
 
 //---------------------------------------------------------------------------
@@ -299,39 +326,6 @@ begin
   libssh2_session_set_blocking(FSession, 0);
   Result := True;
 end;
-
-//---------------------------------------------------------------------------
-
-procedure TNsLibSSH2Session.CloseEx;
-begin
-  if Opened then Close;
-end;
-
-//---------------------------------------------------------------------------
-
-procedure TNsLibSSH2Session.Close;
-begin
-  if Assigned(BeforeClose) then BeforeClose(Self);
-
-  if FSession <> nil then
-    begin
-      libssh2_session_disconnect(FSession, ST_SESSION_CLOSED);
-      libssh2_session_free(FSession);
-      FSession := nil;
-    end;
-
-  if FSocket <> INVALID_SOCKET then
-    CloseSocket(FSocket);
-
-  FFingerprint := DEFAULT_EMPTY_STR;
-  FUserAuth := DEFAULT_EMPTY_STR;
-  FStatus := ST_DISCONNECTED;
-  FOpened := False;
-
-  if Assigned(AfterClose) then AfterClose(Self);
-end;
-
-//---------------------------------------------------------------------------
 
 end.
 
