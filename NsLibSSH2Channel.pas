@@ -3,7 +3,7 @@ unit NsLibSSH2Channel;
 interface
 
 uses
-  Windows, SysUtils, Classes, WinSock, SyncObjs, libssh2, NsLibSSH2Session,
+  Windows, SysUtils, Classes, WinSock, libssh2, NsLibSSH2Session,
   NsLibSSH2Const;
 
 type
@@ -20,6 +20,7 @@ type
     procedure SetExchangeSocket(Value: TSocket);
     function GetChannel: PLIBSSH2_CHANNEL;
     procedure SetChannel(Value: PLIBSSH2_CHANNEL);
+    function GetTerminated: Boolean;
   public
     destructor Destroy; override;
     procedure Execute; override;
@@ -27,6 +28,7 @@ type
     property ExchangeSocket: TSocket read GetExchangeSocket write
       SetExchangeSocket;
     property Channel: PLIBSSH2_CHANNEL read GetChannel write SetChannel;
+    property Terminated: Boolean read GetTerminated;
   end;
 
 type
@@ -398,10 +400,13 @@ function TNsLibSSH2Channel.StartListenerThread: Boolean;
 begin
   Result := False;
 
-  FListenerThd.Resume;
-  WaitForSingleObject(FListenerThd.Handle, 1000);
-
-  Result := True;
+  try
+    FListenerThd.Resume;
+    WaitForSingleObject(FListenerThd.Handle, 1000);
+    Result := True;
+  except
+    ;
+  end;
 end;
 
 //---------------------------------------------------------------------------
@@ -789,6 +794,13 @@ function TExchangerThd.GetPoolIndex: Integer;
 begin
   Result := FPoolIndex;
 end;
+    
+//---------------------------------------------------------------------------
+
+function TExchangerThd.GetTerminated: Boolean;
+begin
+  Result := Self.Terminated;
+end;
 
 //---------------------------------------------------------------------------
 
@@ -918,7 +930,7 @@ end;
 
 procedure TExchangerPool.RemovePoolThread(Sender: TObject);
 begin
-  Remove((Sender as TExchangerThd).FPoolIndex);
+  Remove((Sender as TExchangerThd).PoolIndex);
 end;
 
 //---------------------------------------------------------------------------
