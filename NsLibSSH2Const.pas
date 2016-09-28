@@ -56,65 +56,7 @@ const
   ER_FAILED_PTY = 'Failed requesting pty';
   ER_REQUEST_SHELL = 'Unable to request shell on allocated pty';
 
-procedure DebugLog(S: string); overload;
-procedure DebugLog(I: Integer); overload;
-
-var
-  FileBusy: Boolean;
-
 implementation
-
-procedure CheckLogExists;
-var
-  F: TextFile;
-begin
-  if not FileExists('debug.log') then
-  begin
-    AssignFile(F, 'debug.log');
-    Rewrite(F);
-    Writeln(F, '==== DEBUG LOG ====');
-    CloseFile(F);
-  end;
-end;
-
-procedure DebugLog(S: string);
-var
-  F: TextFile;
-begin
-
-  while True do
-    if not FileBusy then
-    begin
-      try
-        FileBusy := True;
-        CheckLogExists;
-        AssignFile(F, 'debug.log');
-        Append(F);
-        WriteLn(F, S);
-        CloseFile(F);
-        FileBusy := False;
-        Break;
-      except
-        ;
-      end;
-    end;
-end;
-
-procedure DebugLog(I: Integer);
-var
-  F: TextFile;
-begin
-  CheckLogExists;
-
-  try
-    AssignFile(F, 'debug.log');
-    Append(F);
-    WriteLn(F, IntToStr(I));
-    CloseFile(F);
-  except
-    ;
-  end;
-end;
 
 end.
 
