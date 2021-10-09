@@ -1,1 +1,13 @@
+# Delphi temp and local files
 *~*
+*.dcu
+*.local
+*.identcache
+*.stat
+*.tds
+*.skincfg
+*.vlb
+*.res
+*.rsm
+__history/*
+__recovery/*
